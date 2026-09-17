@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Canvas & surfaces — warm, visibly green-tinted */
+  --color-canvas: #EDF2E8;
+  --color-surface: #FFFFFF;
+  --color-sage-tint: #E2EBDC;
+  --color-sage-tint-strong: #D2E0CB;
+
+  /* Deep greens */
+  --color-forest-deep: #11271D;
+  --color-forest: #1B3B2D;
+  --color-forest-mid: #2F5A45;
+  --color-sage: #6E9678;
+  --color-sage-light: #A8C2AC;
+
+  /* Cream — text/marks sitting on the deep greens */
+  --color-cream: #F4F1E8;
+  --color-cream-muted: #C9D3C4;
+
+  /* Ink */
+  --color-ink: #14211A;
+  --color-ink-muted: #4E5F56;
+  --color-ink-faint: #85918A;
+
+  /* Borders */
+  --color-border: #D8E2D2;
+  --color-border-strong: #BFCEB8;
+
+  /* Status */
+  --color-danger: #A32B20;
+  --color-danger-tint: #F7E7E4;
+  --color-warning: #8A5B08;
+  --color-warning-tint: #F6ECD8;
+  --color-success: #27714A;
+  --color-success-tint: #DFEDE3;
+
+  /* Status, legible on the deep greens */
+  --color-danger-lift: #F0B0A5;
+  --color-warning-lift: #EFC98A;
+  --color-success-lift: #9BD3B0;
+}
+
+body {
+  background: var(--color-canvas);
+  background-image: radial-gradient(
+    115% 85% at 50% 0%,
+    rgba(255, 255, 255, 0.75) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-feature-settings: "cv05" 1, "ss01" 1;
+}
+
+@layer base {
+  ::selection {
+    background: var(--color-sage-tint-strong);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-forest-mid);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* --- Dark surfaces -------------------------------------------------
+     Mesh: three overlapping glows (forest, teal, olive) over a deep base,
+     so the colour travels across the surface instead of sitting flat. */
+  .mesh-deep {
+    background-color: #0f2418;
+    background-image:
+      radial-gradient(55% 65% at 8% 8%, rgba(58, 110, 84, 0.62) 0%, rgba(58, 110, 84, 0) 62%),
+      radial-gradient(48% 58% at 88% 12%, rgba(26, 88, 86, 0.55) 0%, rgba(26, 88, 86, 0) 62%),
+      radial-gradient(65% 75% at 65% 108%, rgba(74, 104, 52, 0.4) 0%, rgba(74, 104, 52, 0) 62%);
+  }
+
+  /* Re-aimed for wide, short panels (the patient anchor) so the glows
+     stay round rather than smearing into bands */
+  .mesh-wide {
+    background-color: #0f2418;
+    background-image:
+      radial-gradient(42% 170% at 4% 30%, rgba(58, 110, 84, 0.58) 0%, rgba(58, 110, 84, 0) 66%),
+      radial-gradient(38% 180% at 58% 10%, rgba(26, 88, 86, 0.5) 0%, rgba(26, 88, 86, 0) 66%),
+      radial-gradient(40% 160% at 95% 90%, rgba(74, 104, 52, 0.34) 0%, rgba(74, 104, 52, 0) 66%);
+  }
+
+  /* Small dark elements — avatars, badges, chat bubbles. A full mesh is
+     invisible at this size, so a short directional gradient instead. */
+  .grad-forest {
+    background-image: linear-gradient(140deg, #27543e 0%, #16321f 100%);
+  }
+
+  /* Light sage panels — a whisper of a gradient so they aren't flat either */
+  .grad-sage {
+    background-image: linear-gradient(158deg, #eaf2e5 0%, #dde9d7 100%);
+  }
+
+  /* Same palette, re-aimed for a short wide strip (the nav bar) */
+  .mesh-bar {
+    background-color: #0f2418;
+    background-image:
+      radial-gradient(38% 260% at 10% 50%, rgba(58, 110, 84, 0.5) 0%, rgba(58, 110, 84, 0) 70%),
+      radial-gradient(34% 260% at 74% 50%, rgba(26, 88, 86, 0.45) 0%, rgba(26, 88, 86, 0) 70%);
+  }
+
+  /* Film grain — breaks up banding across large gradient areas.
+     Needs a positioned, clipped parent. */
+  .grain {
+    position: relative;
+  }
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mix-blend-mode: soft-light;
+    opacity: 0.55;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  }
+
+  /* Display serif — optically tightened for large sizes */
+  .text-display {
+    font-family: var(--font-source-serif), Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    line-height: 1.12;
+  }
+
+  /* Aligns digits in tables, vitals and stat tiles */
+  .nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .transition-calm {
+    transition-property: background-color, border-color, color, opacity, transform,
+      box-shadow;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
