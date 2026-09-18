@@ -1,8 +1,12 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Card, PageTitle } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
-import { clinicianTabs } from "@/lib/demo-data";
+import { clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
 import { Info } from "lucide-react";
 
 /**
@@ -11,6 +15,17 @@ import { Info } from "lucide-react";
  * than presenting an empty record as if it were a complete one.
  */
 export default function NoRecordPage() {
+  return (
+    <Suspense fallback={null}>
+      <NoRecordView />
+    </Suspense>
+  );
+}
+
+function NoRecordView() {
+  const searchParams = useSearchParams();
+  const patientId = searchParams.get("patient") ?? DEFAULT_PATIENT_ID;
+
   return (
     <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
       <PageTitle
@@ -24,7 +39,10 @@ export default function NoRecordPage() {
           art={<FigRecords className="h-full w-auto" />}
           title="This patient has no recorded visits"
           body="Either this is their first registered visit, or their earlier care was never entered into a connected system."
-          action={{ label: "Record the first visit", href: "/clinician/scan" }}
+          action={{
+            label: "Record the first visit",
+            href: `/clinician/visit/new?patient=${patientId}`,
+          }}
           note={
             <p className="inline-flex max-w-md items-start gap-2 rounded-xl bg-sage-tint px-4 py-3 text-left text-[12.5px] leading-relaxed text-ink-muted">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-forest-mid" />

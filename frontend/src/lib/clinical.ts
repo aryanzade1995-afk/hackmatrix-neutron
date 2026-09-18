@@ -1,4 +1,150 @@
-import type { Allergy, Prescription, Visit, Vitals } from "./demo-data";
+import type {
+  Allergy,
+  ChiefComplaint,
+  MedicineOption,
+  Patient,
+  Prescription,
+  Visit,
+  Vitals,
+} from "./demo-data";
+import { facilityFormulary } from "./demo-data";
+
+/* ------------------------------------------------------------------ *
+ * Patients
+ * ------------------------------------------------------------------ */
+
+/** Age is always derived, never stored, so it cannot go stale. */
+export function ageFromDob(dob: string, asOf = new Date()): number {
+  const birth = new Date(dob);
+  let age = asOf.getFullYear() - birth.getFullYear();
+  const monthDelta = asOf.getMonth() - birth.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && asOf.getDate() < birth.getDate())) age -= 1;
+  return age;
+}
+
+export function findPatientById(
+  patients: Patient[],
+  id: string | null | undefined,
+): Patient | undefined {
+  if (!id) return undefined;
+  return patients.find((p) => p.id.toLowerCase() === id.toLowerCase());
+}
+
+/** Case-insensitive contains match on name, phone, or id. */
+export function findPatientsByQuery(patients: Patient[], query: string): Patient[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return patients.filter((p) => {
+    const phone = (p.phone ?? "").toLowerCase().replace(/\s/g, "");
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q) ||
+      phone.includes(q.replace(/\s/g, ""))
+    );
+  });
+}
+
+export function visitsForPatient(visits: Visit[], patientId: string): Visit[] {
+  return visits.filter((v) => v.patientId === patientId);
+}
+
+/** Next sequential id in the PT-#### series. */
+export function nextPatientId(patients: Patient[]): string {
+  const highest = patients.reduce((max, p) => {
+    const n = Number.parseInt(p.id.replace(/\D/g, ""), 10);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+  return `PT-${highest + 1}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Chief complaints
+ * ------------------------------------------------------------------ */
+
+/** Filters the complaint list by the patient's age and gender. */
+export function applicableComplaintsFor(
+  patient: Patient,
+  complaints: ChiefComplaint[],
+): ChiefComplaint[] {
+  const age = ageFromDob(patient.dob);
+  return complaints.filter(({ appliesTo }) => {
+    if (!appliesTo) return true;
+    if (appliesTo.minAge !== undefined && age < appliesTo.minAge) return false;
+    if (appliesTo.maxAge !== undefined && age > appliesTo.maxAge) return false;
+    if (appliesTo.genders && !appliesTo.genders.includes(patient.gender)) return false;
+    return true;
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Medicines
+ *
+ * Neither helper below claims a medicine is correct. One reports what has
+ * actually been prescribed here before, the other what this patient was
+ * given last time. Both are conveniences for typing speed — the choice
+ * stays entirely with the doctor, who can also type anything at all.
+ * ------------------------------------------------------------------ */
+
+export function topMedicinesForDiagnosis(
+  visits: Visit[],
+  diagnosis: string,
+  facility: string,
+  limit = 3,
+): MedicineOption[] {
+  const formulary = facilityFormulary[facility] ?? [];
+  const target = diagnosis.trim().toLowerCase();
+
+  if (target) {
+    const counts = new Map<string, number>();
+    for (const visit of visits) {
+      if (visit.facility !== facility) continue;
+      if (visit.diagnosis.trim().toLowerCase() !== target) continue;
+      for (const p of visit.prescriptions) {
+        counts.set(p.drug, (counts.get(p.drug) ?? 0) + 1);
+      }
+    }
+
+    if (counts.size > 0) {
+      const ranked = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([drug]) => formulary.find((m) => m.drug === drug))
+        .filter((m): m is MedicineOption => Boolean(m));
+      if (ranked.length > 0) return ranked.slice(0, limit);
+    }
+  }
+
+  // Cold start: a diagnosis never recorded here before.
+  return [...formulary].sort((a, b) => a.drug.localeCompare(b.drug)).slice(0, limit);
+}
+
+/** This patient's own most recent prescription, optionally for the same diagnosis. */
+export function lastPrescriptionForPatient(
+  visits: Visit[],
+  patientId: string,
+  diagnosis?: string,
+): { prescriptions: Prescription[]; visit: Visit } | null {
+  const mine = visitsForPatient(visits, patientId)
+    .filter((v) => v.prescriptions.length > 0)
+    .filter((v) =>
+      diagnosis
+        ? v.diagnosis.trim().toLowerCase() === diagnosis.trim().toLowerCase()
+        : true,
+    )
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const latest = mine[0];
+  return latest ? { prescriptions: latest.prescriptions, visit: latest } : null;
+}
+
+/** Diagnosis text already used at this facility, for typeahead only. */
+export function pastDiagnosesAt(visits: Visit[], facility: string): string[] {
+  const seen = new Set<string>();
+  for (const v of visits) {
+    if (v.facility === facility) seen.add(v.diagnosis);
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
 
 /* ------------------------------------------------------------------ *
  * Allergy conflicts
@@ -156,5 +302,6 @@ export function changesSinceLastVisit(visits: Visit[]): {
  * ------------------------------------------------------------------ */
 
 export function formatBp(v: Vitals) {
+  if (typeof v.systolic !== "number" || typeof v.diastolic !== "number") return "—";
   return `${v.systolic}/${v.diastolic}`;
 }

@@ -68,6 +68,18 @@ export default function ScanPage() {
             >
               Simulate a patient with no history
             </Link>
+            <Link
+              href="/clinician/register"
+              className="transition-calm text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted"
+            >
+              New patient? Register them
+            </Link>
+            <Link
+              href="/clinician/find"
+              className="transition-calm text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted"
+            >
+              Lost their QR? Find them
+            </Link>
           </div>
         </Card>
 

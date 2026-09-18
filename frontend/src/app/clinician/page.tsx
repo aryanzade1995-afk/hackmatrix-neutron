@@ -1,15 +1,25 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, SectionLabel } from "@/components/Card";
 import { Sparkline } from "@/components/Sparkline";
 import { ArtContinuity } from "@/components/Illustrations";
-import { accessLog, clinicianTabs, patient, visits } from "@/lib/demo-data";
+import { EmptyState } from "@/components/EmptyState";
+import { FigRecords } from "@/components/Figures";
+import { accessLog, clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
+import { useStore } from "@/lib/store";
 import {
+  ageFromDob,
   changesSinceLastVisit,
   conflictsForVisit,
   findAllergyConflicts,
+  findPatientById,
   trendOf,
+  visitsForPatient,
   vitalSeries,
   type VitalKey,
 } from "@/lib/clinical";
@@ -34,6 +44,23 @@ const VITALS: { key: VitalKey; label: string; unit: string; lowerIsBetter: boole
 ];
 
 export default function ClinicianPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClinicianRecord />
+    </Suspense>
+  );
+}
+
+function ClinicianRecord() {
+  const { patients, visits: allVisits } = useStore();
+  const searchParams = useSearchParams();
+
+  // Falls back to Priya so every existing demo link keeps working.
+  const patient =
+    findPatientById(patients, searchParams.get("patient")) ??
+    findPatientById(patients, DEFAULT_PATIENT_ID)!;
+
+  const visits = visitsForPatient(allVisits, patient.id);
   const conflicts = findAllergyConflicts(visits, patient.allergies);
   const delta = changesSinceLastVisit(visits);
   const facilityCount = new Set(visits.map((v) => v.facility)).size;
@@ -53,7 +80,7 @@ export default function ClinicianPage() {
                 </span>
               </div>
               <p className="mt-1.5 text-[13.5px] text-cream-muted">
-                {patient.age} yrs · {patient.gender} · {patient.facility},{" "}
+                {ageFromDob(patient.dob)} yrs · {patient.gender} · {patient.facility},{" "}
                 {patient.district}
               </p>
               <div className="mt-3.5 flex flex-wrap gap-2">
@@ -90,6 +117,22 @@ export default function ClinicianPage() {
           </div>
         </div>
       </div>
+
+      {/* A patient registered but not yet seen. Shown plainly rather than
+          rendering an empty record as though it were a complete one. */}
+      {visits.length === 0 && (
+        <Card>
+          <EmptyState
+            art={<FigRecords className="h-full w-auto" />}
+            title="No visits recorded yet"
+            body={`${patient.name} has a record but has not been seen yet. Anything documented from here will appear on this timeline.`}
+            action={{
+              label: "Record their first visit",
+              href: `/clinician/visit/new?patient=${patient.id}`,
+            }}
+          />
+        </Card>
+      )}
 
       {/* Allergy guard — fires when a prescription shares a drug class with
           a recorded allergy. Prototype logic, not clinical decision support. */}
@@ -135,7 +178,11 @@ export default function ClinicianPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
+      <div
+        className={`grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] ${
+          visits.length === 0 ? "hidden" : ""
+        }`}
+      >
         {/* Left column */}
         <div className="space-y-6">
           <Card accent>
@@ -321,7 +368,11 @@ export default function ClinicianPage() {
           <Card>
             <CardHeader
               title="Vitals"
-              subtitle={`Across ${visits.length} visits since ${visits[visits.length - 1].display}`}
+              subtitle={
+                visits.length > 0
+                  ? `Across ${visits.length} visits since ${visits[visits.length - 1].display}`
+                  : "No readings recorded yet"
+              }
             />
             <div className="divide-y divide-border border-t border-border">
               {VITALS.map((v) => {
@@ -339,7 +390,7 @@ export default function ClinicianPage() {
                       <p className="mt-1 flex items-baseline gap-1">
                         <span className="nums text-display text-[23px] text-forest">
                           {v.key === "systolic"
-                            ? `${latest.value}/${visits[0].vitals.diastolic}`
+                            ? `${latest.value}/${visits[0]?.vitals.diastolic ?? "—"}`
                             : latest.value}
                         </span>
                         <span className="text-[11.5px] font-medium text-ink-faint">

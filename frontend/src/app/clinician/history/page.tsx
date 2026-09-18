@@ -1,11 +1,37 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle } from "@/components/Card";
-import { clinicianTabs, patient, visits } from "@/lib/demo-data";
-import { conflictsForVisit, formatBp } from "@/lib/clinical";
+import { clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
+import { useStore } from "@/lib/store";
+import {
+  conflictsForVisit,
+  findPatientById,
+  formatBp,
+  visitsForPatient,
+} from "@/lib/clinical";
 import { TriangleAlert } from "lucide-react";
 
 export default function ClinicianHistoryPage() {
+  return (
+    <Suspense fallback={null}>
+      <HistoryView />
+    </Suspense>
+  );
+}
+
+function HistoryView() {
+  const { patients, visits: allVisits } = useStore();
+  const searchParams = useSearchParams();
+
+  const patient =
+    findPatientById(patients, searchParams.get("patient")) ??
+    findPatientById(patients, DEFAULT_PATIENT_ID)!;
+  const visits = visitsForPatient(allVisits, patient.id);
+
   return (
     <AppShell role="clinician" userName="R. Deshmukh" tabs={clinicianTabs}>
       <PageTitle

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Source_Serif_4, Public_Sans } from "next/font/google";
 import "./globals.css";
+import { StoreProvider } from "@/lib/store";
 
 const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
@@ -27,7 +28,9 @@ export default function RootLayout({
       lang="en"
       className={`${sourceSerif.variable} ${publicSans.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-canvas text-ink">{children}</body>
+      <body className="min-h-full flex flex-col bg-canvas text-ink">
+        <StoreProvider>{children}</StoreProvider>
+      </body>
     </html>
   );
 }
