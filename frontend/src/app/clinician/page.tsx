@@ -2,11 +2,23 @@ import { AppShell } from "@/components/AppShell";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, SectionLabel } from "@/components/Card";
+import { Sparkline } from "@/components/Sparkline";
+import { ArtContinuity } from "@/components/Illustrations";
 import { accessLog, clinicianTabs, patient, visits } from "@/lib/demo-data";
 import {
+  changesSinceLastVisit,
+  conflictsForVisit,
+  findAllergyConflicts,
+  trendOf,
+  vitalSeries,
+  type VitalKey,
+} from "@/lib/clinical";
+import {
   ArrowDownRight,
+  ArrowUpRight,
   CheckCircle2,
   Minus,
+  Pill,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -14,14 +26,16 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-const vitals = [
-  { label: "Blood pressure", value: "138/86", unit: "mmHg", trend: "down" as const },
-  { label: "HbA1c", value: "6.8", unit: "%", trend: "flat" as const },
-  { label: "Weight", value: "64", unit: "kg", trend: "flat" as const },
-  { label: "Resting HR", value: "78", unit: "bpm", trend: "flat" as const },
+const VITALS: { key: VitalKey; label: string; unit: string; lowerIsBetter: boolean }[] = [
+  { key: "systolic", label: "Systolic BP", unit: "mmHg", lowerIsBetter: true },
+  { key: "hba1c", label: "HbA1c", unit: "%", lowerIsBetter: true },
+  { key: "weightKg", label: "Weight", unit: "kg", lowerIsBetter: true },
+  { key: "heartRate", label: "Resting HR", unit: "bpm", lowerIsBetter: true },
 ];
 
 export default function ClinicianPage() {
+  const conflicts = findAllergyConflicts(visits, patient.allergies);
+  const delta = changesSinceLastVisit(visits);
   const facilityCount = new Set(visits.map((v) => v.facility)).size;
 
   return (
@@ -53,11 +67,11 @@ export default function ClinicianPage() {
                 ))}
                 {patient.allergies.map((a) => (
                   <span
-                    key={a}
+                    key={a.label}
                     className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(180,70,55,0.22)] px-3 py-1 text-[11.5px] font-semibold text-danger-lift ring-1 ring-inset ring-[rgba(240,176,165,0.25)]"
                   >
                     <TriangleAlert className="h-3 w-3" />
-                    {a} allergy
+                    {a.label} allergy
                   </span>
                 ))}
               </div>
@@ -76,6 +90,50 @@ export default function ClinicianPage() {
           </div>
         </div>
       </div>
+
+      {/* Allergy guard — fires when a prescription shares a drug class with
+          a recorded allergy. Prototype logic, not clinical decision support. */}
+      {conflicts.length > 0 && (
+        <div className="mb-7 overflow-hidden rounded-2xl border border-danger bg-danger-tint">
+          <div className="flex items-start gap-4 px-7 py-5">
+            <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-display text-[19px] text-danger">
+                  Prescription conflicts with a recorded allergy
+                </h2>
+                <Badge tone="danger">
+                  {conflicts.length} found
+                </Badge>
+              </div>
+              <ul className="mt-3.5 space-y-2.5">
+                {conflicts.map((c, i) => (
+                  <li
+                    key={i}
+                    className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl bg-surface px-4 py-3 text-[13.5px]"
+                  >
+                    <Pill className="h-4 w-4 shrink-0 text-danger" />
+                    <span className="font-semibold text-ink">
+                      {c.prescription.drug} {c.prescription.dose}
+                    </span>
+                    <span className="text-ink-muted">
+                      prescribed at {c.visit.facility} on {c.visit.display}
+                    </span>
+                    <span className="ml-auto rounded-full bg-danger-tint px-2.5 py-1 text-[11.5px] font-medium text-danger">
+                      {c.prescription.drugClass} · {c.allergy.severity} allergy recorded{" "}
+                      {c.allergy.recorded}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-[12.5px] leading-relaxed text-ink-muted">
+                This is exactly the gap unified records close — the prescribing facility
+                could not see the allergy noted at {patient.facility}.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
         {/* Left column */}
@@ -117,13 +175,20 @@ export default function ClinicianPage() {
               title="Care timeline"
               subtitle={`${visits.length} visits across ${facilityCount} facilities, most recent first`}
             />
-            <div className="px-7 pb-7">
+            {/* One continuous trace across the years — the shape of the record
+                below, kept faint so it never competes with it */}
+            <div className="border-y border-border bg-canvas px-7 py-3">
+              <ArtContinuity className="h-auto w-full text-sage opacity-45" />
+            </div>
+            <div className="px-7 pb-7 pt-6">
               <ol className="relative">
                 {visits.map((visit, i) => {
                   const last = i === visits.length - 1;
                   const current = i === 0;
+                  const visitConflicts = conflictsForVisit(visit, patient.allergies);
+
                   return (
-                    <li key={i} className="relative flex gap-5 pb-7 last:pb-0">
+                    <li key={visit.id} className="relative flex gap-5 pb-7 last:pb-0">
                       {!last && (
                         <span
                           className="absolute left-[5.5px] top-4 h-full w-px bg-gradient-to-b from-border-strong to-border"
@@ -132,9 +197,13 @@ export default function ClinicianPage() {
                       )}
                       <span
                         className={`relative z-10 mt-[6px] h-3 w-3 shrink-0 rounded-full ring-4 ring-surface ${
-                          current
-                            ? "bg-forest-mid ring-offset-0"
-                            : "border-2 border-sage-light bg-surface"
+                          visitConflicts.length > 0
+                            ? "bg-danger"
+                            : current
+                              ? "bg-forest-mid"
+                              : visit.admission
+                                ? "bg-warning"
+                                : "border-2 border-sage-light bg-surface"
                         }`}
                         aria-hidden
                       />
@@ -144,7 +213,7 @@ export default function ClinicianPage() {
                             {visit.diagnosis}
                           </p>
                           <span className="nums text-[12px] text-ink-faint">
-                            {visit.date}
+                            {visit.display}
                           </span>
                         </div>
                         <p className="mt-1 text-[12.5px] text-ink-faint">
@@ -153,8 +222,26 @@ export default function ClinicianPage() {
                         <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-muted">
                           {visit.notes}
                         </p>
-                        <div className="mt-3">
-                          <Badge tone="neutral">Rx · {visit.prescription}</Badge>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {visit.prescriptions.map((p) => {
+                            const clash = visitConflicts.some(
+                              (c) => c.prescription.drug === p.drug,
+                            );
+                            return clash ? (
+                              <span
+                                key={p.drug}
+                                className="inline-flex items-center gap-1.5 rounded-full bg-danger-tint px-2.5 py-1 text-[11.5px] font-semibold text-danger ring-1 ring-inset ring-danger"
+                              >
+                                <TriangleAlert className="h-3 w-3" />
+                                Rx · {p.drug} {p.dose} — allergy conflict
+                              </span>
+                            ) : (
+                              <Badge key={p.drug} tone="neutral">
+                                Rx · {p.drug} {p.dose}
+                              </Badge>
+                            );
+                          })}
+                          {visit.admission && <Badge tone="warning">ER admission</Badge>}
                         </div>
                       </div>
                     </li>
@@ -167,51 +254,116 @@ export default function ClinicianPage() {
 
         {/* Right column */}
         <div className="space-y-6">
-          <Card tone="sage">
-            <div className="px-7 py-6">
-              <SectionLabel>Flagged for attention</SectionLabel>
-              <div className="mt-4 space-y-2.5">
-                <Flag
-                  tone="danger"
-                  icon={TriangleAlert}
-                  title="Penicillin allergy"
-                  body="Recorded 02 Jun 2023. Avoid penicillin-class antibiotics."
-                />
-                <Flag
-                  tone="warning"
-                  icon={ShieldAlert}
-                  title="Two ER admissions"
-                  body="Hypertensive episodes within 16 months."
-                />
+          {/* What changed since last visit */}
+          {delta && (
+            <Card tone="sage">
+              <div className="px-7 py-6">
+                <SectionLabel>Since last visit</SectionLabel>
+                <p className="mt-2 text-[12.5px] leading-relaxed text-ink-muted">
+                  {delta.previous.display} → {delta.current.display}
+                </p>
+                <ul className="mt-4 space-y-2">
+                  {delta.changes.map((change, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2.5 rounded-xl bg-surface px-3.5 py-2.5"
+                    >
+                      {change.kind === "vital" ? (
+                        <>
+                          {change.better === true ? (
+                            <ArrowDownRight className="mt-[3px] h-3.5 w-3.5 shrink-0 text-success" />
+                          ) : change.better === false ? (
+                            <ArrowUpRight className="mt-[3px] h-3.5 w-3.5 shrink-0 text-warning" />
+                          ) : (
+                            /* no clinical direction for this metric — stay neutral */
+                            <Minus className="mt-[3px] h-3.5 w-3.5 shrink-0 text-ink-faint" />
+                          )}
+                          <span className="text-[12.5px] text-ink">
+                            <span className="font-medium">{change.label}</span>{" "}
+                            <span className="nums text-ink-muted">
+                              {change.from} → {change.to}
+                            </span>
+                          </span>
+                        </>
+                      ) : change.kind === "started" ? (
+                        <>
+                          <Pill className="mt-[3px] h-3.5 w-3.5 shrink-0 text-forest-mid" />
+                          <span className="text-[12.5px] text-ink">
+                            Started <span className="font-medium">{change.label}</span>{" "}
+                            <span className="text-ink-muted">{change.detail}</span>
+                          </span>
+                        </>
+                      ) : change.kind === "stopped" ? (
+                        <>
+                          <Minus className="mt-[3px] h-3.5 w-3.5 shrink-0 text-ink-faint" />
+                          <span className="text-[12.5px] text-ink">
+                            Stopped <span className="font-medium">{change.label}</span>{" "}
+                            <span className="text-ink-muted">{change.detail}</span>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="mt-[3px] h-3.5 w-3.5 shrink-0 text-sage" />
+                          <span className="text-[12.5px] text-ink">
+                            <span className="font-medium">{change.label}</span>{" "}
+                            <span className="text-ink-muted">— {change.detail}</span>
+                          </span>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
+          {/* Vitals as trends */}
           <Card>
-            <CardHeader title="Latest vitals" subtitle="Recorded 12 Aug 2026" />
-            <dl className="grid grid-cols-2 gap-px border-t border-border bg-border">
-              {vitals.map((v) => (
-                <div key={v.label} className="bg-surface px-7 py-5">
-                  <dt className="text-[11.5px] text-ink-faint">{v.label}</dt>
-                  <dd className="mt-1.5 flex items-baseline gap-1">
-                    <span className="nums text-display text-[24px] text-forest">
-                      {v.value}
-                    </span>
-                    <span className="text-[11.5px] font-medium text-ink-faint">
-                      {v.unit}
-                    </span>
-                  </dd>
-                  <p className="mt-2 flex items-center gap-1 text-[11px] text-ink-faint">
-                    {v.trend === "down" ? (
-                      <ArrowDownRight className="h-3 w-3 text-success" />
-                    ) : (
-                      <Minus className="h-3 w-3" />
-                    )}
-                    {v.trend === "down" ? "improving" : "stable"}
-                  </p>
-                </div>
-              ))}
-            </dl>
+            <CardHeader
+              title="Vitals"
+              subtitle={`Across ${visits.length} visits since ${visits[visits.length - 1].display}`}
+            />
+            <div className="divide-y divide-border border-t border-border">
+              {VITALS.map((v) => {
+                const series = vitalSeries(visits, v.key);
+                if (series.length === 0) return null;
+                const latest = series[series.length - 1];
+                const first = series[0];
+                const dir = trendOf(series);
+                const improving = v.lowerIsBetter ? dir === "down" : dir === "up";
+
+                return (
+                  <div key={v.key} className="flex items-center gap-4 px-7 py-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11.5px] text-ink-faint">{v.label}</p>
+                      <p className="mt-1 flex items-baseline gap-1">
+                        <span className="nums text-display text-[23px] text-forest">
+                          {v.key === "systolic"
+                            ? `${latest.value}/${visits[0].vitals.diastolic}`
+                            : latest.value}
+                        </span>
+                        <span className="text-[11.5px] font-medium text-ink-faint">
+                          {v.unit}
+                        </span>
+                      </p>
+                      <p className="nums mt-1 flex items-center gap-1 text-[11px] text-ink-faint">
+                        {dir === "flat" ? (
+                          <Minus className="h-3 w-3" />
+                        ) : improving ? (
+                          <ArrowDownRight className="h-3 w-3 text-success" />
+                        ) : (
+                          <ArrowUpRight className="h-3 w-3 text-warning" />
+                        )}
+                        from {first.value} in {first.display.split(" ").slice(-1)}
+                      </p>
+                    </div>
+                    <div className="w-[108px] shrink-0">
+                      <Sparkline series={series} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </Card>
 
           <Card>
@@ -245,33 +397,6 @@ export default function ClinicianPage() {
         </div>
       </div>
     </AppShell>
-  );
-}
-
-function Flag({
-  tone,
-  icon: Icon,
-  title,
-  body,
-}: {
-  tone: "danger" | "warning";
-  icon: React.ElementType;
-  title: string;
-  body: string;
-}) {
-  const classes =
-    tone === "danger"
-      ? { box: "bg-danger-tint", icon: "text-danger", title: "text-danger" }
-      : { box: "bg-warning-tint", icon: "text-warning", title: "text-warning" };
-
-  return (
-    <div className={`flex items-start gap-3 rounded-xl px-4 py-3.5 ${classes.box}`}>
-      <Icon className={`mt-[3px] h-4 w-4 shrink-0 ${classes.icon}`} />
-      <div>
-        <p className={`text-[13.5px] font-semibold ${classes.title}`}>{title}</p>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">{body}</p>
-      </div>
-    </div>
   );
 }
 

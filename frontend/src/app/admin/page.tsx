@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle, SectionLabel } from "@/components/Card";
+import { FigAdministrator } from "@/components/Figures";
 import { adminTabs } from "@/lib/demo-data";
 import { ArrowUpRight, EyeOff, Lock, MessageCircle, Sparkles } from "lucide-react";
 
@@ -154,6 +155,20 @@ export default function AdminPage() {
         </div>
 
         <div className="space-y-6">
+          <Card>
+            <div className="flex items-center gap-4 px-7 py-6">
+              <FigAdministrator className="h-[68px] w-auto shrink-0" />
+              <div className="min-w-0">
+                <SectionLabel>You are signed in as</SectionLabel>
+                <p className="text-display mt-2 text-[19px] text-ink">Administrator</p>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
+                  Your database login has no grant on the identified tables. Not a
+                  hidden screen — the rows are unreachable from this account.
+                </p>
+              </div>
+            </div>
+          </Card>
+
           <Card tone="forest">
             <div className="px-7 py-6">
               <div className="flex items-center gap-2">

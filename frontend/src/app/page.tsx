@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BarChart3, Stethoscope } from "lucide-react";
 import { Mark } from "@/components/Mark";
-import { DualPathDiagram } from "@/components/DualPathDiagram";
+import { FigTwoReadings } from "@/components/Figures";
 import { PopulationGrid } from "@/components/PopulationGrid";
 import { ConsentTokenCard } from "@/components/LightPreviews";
 
@@ -61,7 +61,13 @@ export default function Home({
             </p>
           </div>
 
-          <DualPathDiagram className="hidden h-auto w-full lg:block" />
+          <div className="hidden lg:block">
+            <FigTwoReadings className="ml-auto h-auto w-full max-w-[520px]" />
+            <p className="mt-5 text-right text-[12px] text-cream-muted">
+              Split enforced by Postgres <span className="font-mono">GRANT</span> /{" "}
+              <span className="font-mono">REVOKE</span> — not by the interface
+            </p>
+          </div>
         </div>
 
         {/* One dot per person — one of them lit */}

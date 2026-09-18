@@ -2,6 +2,8 @@ import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle } from "@/components/Card";
 import { clinicianTabs, patient, visits } from "@/lib/demo-data";
+import { conflictsForVisit, formatBp } from "@/lib/clinical";
+import { TriangleAlert } from "lucide-react";
 
 export default function ClinicianHistoryPage() {
   return (
@@ -20,23 +22,51 @@ export default function ClinicianHistoryPage() {
           subtitle="Most recent first, across every facility that has treated this patient"
         />
         <ul className="divide-y divide-border">
-          {visits.map((visit, i) => (
-            <li key={i} className="px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-4">
-                  <span className="w-24 shrink-0 pt-0.5 text-xs text-ink-faint">
-                    {visit.date}
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium text-ink">{visit.diagnosis}</p>
-                    <p className="text-xs text-ink-muted">{visit.facility}</p>
-                    <p className="mt-1.5 text-sm text-ink-muted">{visit.notes}</p>
+          {visits.map((visit) => {
+            const clashes = conflictsForVisit(visit, patient.allergies);
+            return (
+              <li key={visit.id} className="px-7 py-5">
+                <div className="flex items-start justify-between gap-5">
+                  <div className="flex gap-5">
+                    <span className="nums w-24 shrink-0 pt-0.5 text-[12px] text-ink-faint">
+                      {visit.display}
+                    </span>
+                    <div>
+                      <p className="text-[14.5px] font-semibold text-ink">
+                        {visit.diagnosis}
+                      </p>
+                      <p className="text-[12.5px] text-ink-faint">{visit.facility}</p>
+                      <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+                        {visit.notes}
+                      </p>
+                      <p className="nums mt-2 text-[12px] text-ink-faint">
+                        BP {formatBp(visit.vitals)} · {visit.vitals.weightKg} kg ·{" "}
+                        {visit.vitals.heartRate} bpm
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {visit.prescriptions.map((p) => {
+                      const clash = clashes.some((c) => c.prescription.drug === p.drug);
+                      return clash ? (
+                        <span
+                          key={p.drug}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-danger-tint px-2.5 py-1 text-[11.5px] font-semibold text-danger ring-1 ring-inset ring-danger"
+                        >
+                          <TriangleAlert className="h-3 w-3" />
+                          {p.drug} {p.dose}
+                        </span>
+                      ) : (
+                        <Badge key={p.drug} tone="neutral">
+                          {p.drug} {p.dose}
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
-                <Badge tone="neutral">{visit.prescription}</Badge>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </Card>
     </AppShell>
