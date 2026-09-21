@@ -37,3 +37,6 @@ venv/
 *.mp4
 *.mov
 *.zip
+
+# backend secrets
+backend/.env
