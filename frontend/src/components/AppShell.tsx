@@ -4,11 +4,46 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Avatar } from "./Avatar";
 import { Mark } from "./Mark";
+import { useStore } from "@/lib/store";
+import { CloudOff, Check } from "lucide-react";
 
 export type ShellTab = {
   label: string;
   href: string;
 };
+
+/**
+ * Unsent writes, surfaced where a clinician will actually see them.
+ *
+ * Silence is the normal state: nothing renders when the queue is empty and
+ * nothing has just drained, so the header stays quiet in the common case.
+ */
+function SyncStatus() {
+  const { pendingCount, justSynced } = useStore();
+
+  if (pendingCount > 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(212,160,60,0.2)] px-3 py-1 text-[11.5px] font-medium text-warning-lift ring-1 ring-inset ring-[rgba(239,201,138,0.3)]"
+        title="Saved on this device. They will be sent when the connection returns."
+      >
+        <CloudOff className="h-3 w-3" />
+        {pendingCount} waiting to sync
+      </span>
+    );
+  }
+
+  if (justSynced) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] px-3 py-1 text-[11.5px] font-medium text-success-lift ring-1 ring-inset ring-white/10">
+        <Check className="h-3 w-3" />
+        All changes synced
+      </span>
+    );
+  }
+
+  return null;
+}
 
 export function AppShell({
   role,
@@ -56,6 +91,7 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-3">
+            <SyncStatus />
             <span className="hidden text-[11px] font-medium uppercase tracking-label text-sage-light sm:block">
               {role === "clinician" ? "Clinician access" : "Aggregate access"}
             </span>
