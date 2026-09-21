@@ -6,13 +6,21 @@ DELETE, which is why there is no edit route below and could not usefully be one.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
+from ..audit import CHAIN_LOCK_KEY, GENESIS, canonical_time, compute_hash
 from ..db import clinician_engine
-from ..models import Patient, PatientCreate, Visit, VisitCreate
+from ..models import (
+    AccessLogCreate,
+    AccessLogEntry,
+    Patient,
+    PatientCreate,
+    Visit,
+    VisitCreate,
+)
 
 router = APIRouter(prefix="/clinician", tags=["clinician"])
 
@@ -231,6 +239,137 @@ def create_visit(body: VisitCreate):
             text("SELECT * FROM visits WHERE id = :id"), {"id": visit_id}
         ).one()
     return _visit_from_row(row)
+
+
+# ---------------------------------------------------------------- access log
+
+
+def _entry_from_row(row) -> AccessLogEntry:
+    return AccessLogEntry(
+        id=row.id,
+        patientId=row.patient_id,
+        actor=row.actor,
+        action=row.action,
+        outcome=row.outcome,
+        reason=row.reason,
+        prevHash=row.prev_hash,
+        hash=row.hash,
+        createdAt=canonical_time(row.created_at),
+    )
+
+
+@router.post("/access-log", response_model=AccessLogEntry, status_code=201)
+def log_access(body: AccessLogCreate):
+    """Append one entry to the hash chain.
+
+    Insert-only, like `visits` — and the clinician role holds no UPDATE grant
+    on this table either, so an audit trail that could be quietly rewritten is
+    not merely discouraged, it is unavailable.
+    """
+    if body.action == "emergency_access" and not (body.reason and body.reason.strip()):
+        raise HTTPException(
+            status_code=422, detail="A reason is required for emergency access"
+        )
+
+    with clinician_engine().begin() as conn:
+        # Serialise appenders so two writers cannot read the same chain tail.
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": CHAIN_LOCK_KEY},
+        )
+
+        last_hash = conn.execute(
+            text("SELECT hash FROM access_log ORDER BY id DESC LIMIT 1")
+        ).scalar_one_or_none()
+        prev_hash = last_hash or GENESIS
+
+        created_at = canonical_time(datetime.now(timezone.utc))
+        new_hash = compute_hash(
+            prev_hash,
+            body.patientId,
+            body.actor,
+            body.action,
+            body.outcome,
+            body.reason,
+            created_at,
+        )
+
+        row = conn.execute(
+            text(
+                """
+                INSERT INTO access_log
+                  (patient_id, actor, action, outcome, reason, prev_hash, hash, created_at)
+                VALUES
+                  (:patient_id, :actor, :action, :outcome, :reason, :prev_hash, :hash, :created_at)
+                RETURNING *
+                """
+            ),
+            {
+                "patient_id": body.patientId,
+                "actor": body.actor,
+                "action": body.action,
+                "outcome": body.outcome,
+                "reason": body.reason,
+                "prev_hash": prev_hash,
+                "hash": new_hash,
+                "created_at": created_at,
+            },
+        ).one()
+
+    return _entry_from_row(row)
+
+
+@router.get("/access-log", response_model=list[AccessLogEntry])
+def list_access_log(
+    patient_id: str | None = Query(default=None),
+    limit: int = Query(default=200, le=1000),
+):
+    clauses, params = [], {"limit": limit}
+    if patient_id:
+        clauses.append("patient_id = :patient_id")
+        params["patient_id"] = patient_id
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with clinician_engine().connect() as conn:
+        rows = conn.execute(
+            text(f"SELECT * FROM access_log {where} ORDER BY id DESC LIMIT :limit"),
+            params,
+        ).all()
+    return [_entry_from_row(r) for r in rows]
+
+
+@router.get("/access-log/verify")
+def verify_chain():
+    """Recompute every hash from stored fields and report the first divergence.
+
+    This is the tamper-evidence claim made checkable. An altered row changes its
+    own hash, which no longer matches the `prev_hash` recorded by the row after
+    it, so the break is located rather than merely detected.
+    """
+    with clinician_engine().connect() as conn:
+        rows = conn.execute(text("SELECT * FROM access_log ORDER BY id")).all()
+
+    expected_prev = GENESIS
+    for r in rows:
+        recomputed = compute_hash(
+            expected_prev,
+            r.patient_id,
+            r.actor,
+            r.action,
+            r.outcome,
+            r.reason,
+            canonical_time(r.created_at),
+        )
+        if r.prev_hash != expected_prev or r.hash != recomputed:
+            return {
+                "valid": False,
+                "brokenAtId": r.id,
+                "rowsChecked": len(rows),
+                "detail": "This entry no longer matches its recorded hash.",
+            }
+        expected_prev = r.hash
+
+    return {"valid": True, "rowsChecked": len(rows)}
 
 
 def _json(value) -> str:

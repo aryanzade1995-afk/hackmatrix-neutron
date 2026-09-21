@@ -157,6 +157,30 @@ class AggregateRow(BaseModel):
     week: Date | None = None
 
 
+AccessAction = Literal["view_record", "emergency_access"]
+AccessOutcome = Literal["granted", "denied"]
+
+
+class AccessLogCreate(BaseModel):
+    patientId: str | None = None
+    actor: str
+    action: AccessAction
+    outcome: AccessOutcome = "granted"
+    reason: str | None = None
+
+
+class AccessLogEntry(BaseModel):
+    id: int
+    patientId: str | None
+    actor: str
+    action: AccessAction
+    outcome: AccessOutcome
+    reason: str | None
+    prevHash: str
+    hash: str
+    createdAt: str
+
+
 class TrendSignal(BaseModel):
     """A (district, diagnosis) pair whose latest week sits well above its own
     trailing average. Arithmetic over already-suppressed aggregates — no model,

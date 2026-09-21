@@ -7,10 +7,15 @@ import { AppShell } from "@/components/AppShell";
 import { Card, PageTitle, SectionLabel } from "@/components/Card";
 import { FigConsentCard } from "@/components/Figures";
 import { QrScanner } from "@/components/QrScanner";
-import { findPatientById } from "@/lib/clinical";
+import { findPatientById, findPatientsByQuery } from "@/lib/clinical";
+import { recordAccess } from "@/lib/auditLog";
 import { useStore } from "@/lib/store";
-import { clinicianTabs } from "@/lib/demo-data";
-import { ArrowRight, Clock, ScanLine, ShieldCheck } from "lucide-react";
+import { clinicianTabs, type Patient } from "@/lib/demo-data";
+import { ArrowRight, Clock, ScanLine, ShieldCheck, Siren } from "lucide-react";
+
+/** No auth yet, so the acting clinician is fixed. The audit row is real
+ *  regardless; only the name is a placeholder. */
+const CLINICIAN = "Dr. R. Deshmukh";
 
 const steps = [
   {
@@ -35,6 +40,15 @@ export default function ScanPage() {
   const { patients } = useStore();
   const [notFoundId, setNotFoundId] = useState<string | null>(null);
 
+  const [breakGlass, setBreakGlass] = useState(false);
+  const [query, setQuery] = useState("");
+  const [chosen, setChosen] = useState<Patient | null>(null);
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const matches = findPatientsByQuery(patients, query).slice(0, 5);
+
   /**
    * The QR encodes a patient id and nothing else. Finding a match opens the
    * record; not finding one is a legitimate outcome with its own screen, not
@@ -43,12 +57,48 @@ export default function ScanPage() {
   function handleDecode(value: string) {
     setNotFoundId(null);
     const patient = findPatientById(patients, value);
+
     if (patient) {
+      // Fire-and-forget: navigation must not wait on the audit write, and a
+      // logging failure must never stop a doctor opening a record.
+      void recordAccess({
+        patientId: patient.id,
+        actor: CLINICIAN,
+        action: "view_record",
+        outcome: "granted",
+      });
       router.push(`/clinician?patient=${patient.id}`);
       return;
     }
+
     setNotFoundId(value);
     router.push(`/clinician/not-found-record?patient=${encodeURIComponent(value)}`);
+  }
+
+  /**
+   * Break-glass. A patient who cannot present a code — unconscious, no card,
+   * phone lost — still needs treating, so the system must have a path that
+   * does not depend on consent being given at that moment.
+   *
+   * The control is not refusal, it is accountability: a reason is mandatory,
+   * the entry is written to the same hash-chained log as everything else, and
+   * it is marked distinctly there rather than blending in.
+   */
+  async function openEmergency(patientId: string) {
+    if (!reason.trim()) {
+      setReasonError("A reason is required before emergency access");
+      return;
+    }
+    setSubmitting(true);
+    await recordAccess({
+      patientId,
+      actor: CLINICIAN,
+      action: "emergency_access",
+      outcome: "granted",
+      reason: reason.trim(),
+    });
+    setSubmitting(false);
+    router.push(`/clinician?patient=${patientId}&emergency=1`);
   }
 
   return (
@@ -124,6 +174,113 @@ export default function ScanPage() {
             >
               Lost their QR? Find them
             </Link>
+          </div>
+
+          {/* Break-glass. A patient who cannot present a code still needs
+              treating, so refusal is not an option — accountability is. */}
+          <div className="mt-6 w-full border-t border-border pt-5">
+            {!breakGlass ? (
+              <button
+                type="button"
+                onClick={() => setBreakGlass(true)}
+                className="transition-calm mx-auto flex items-center gap-2 text-[12.5px] font-medium text-warning underline underline-offset-4 hover:text-ink"
+              >
+                <Siren className="h-3.5 w-3.5" />
+                Can&apos;t scan this patient?
+              </button>
+            ) : (
+              <div className="rounded-xl bg-warning-tint px-5 py-5 text-left">
+                <div className="flex items-start gap-2.5">
+                  <Siren className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  <div>
+                    <p className="text-[13.5px] font-semibold text-warning">
+                      Emergency access
+                    </p>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
+                      For a patient who cannot consent — unconscious, no card, no
+                      phone. The record opens, and a reason is written permanently
+                      to the audit trail.
+                    </p>
+                  </div>
+                </div>
+
+                <input
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setChosen(null);
+                  }}
+                  placeholder="Find the patient by name, phone or ID"
+                  className="transition-calm mt-4 w-full rounded-xl bg-surface px-4 py-2.5 text-[13px] text-ink ring-1 ring-inset ring-border-strong placeholder:text-ink-faint focus:outline-none focus:ring-warning"
+                />
+
+                {query.trim() && !chosen && (
+                  <ul className="mt-2 space-y-1">
+                    {matches.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChosen(p);
+                            setQuery(p.name);
+                          }}
+                          className="transition-calm w-full rounded-lg bg-surface px-3.5 py-2 text-left text-[13px] text-ink hover:bg-canvas"
+                        >
+                          {p.name}{" "}
+                          <span className="nums text-[11.5px] text-ink-faint">
+                            {p.id}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {matches.length === 0 && (
+                      <li className="px-1 py-2 text-[12.5px] text-ink-faint">
+                        No patient matches that.
+                      </li>
+                    )}
+                  </ul>
+                )}
+
+                <textarea
+                  value={reason}
+                  onChange={(e) => {
+                    setReason(e.target.value);
+                    setReasonError(null);
+                  }}
+                  rows={2}
+                  placeholder="Why is emergency access needed? (required)"
+                  className="transition-calm mt-3 w-full resize-y rounded-xl bg-surface px-4 py-2.5 text-[13px] text-ink ring-1 ring-inset ring-border-strong placeholder:text-ink-faint focus:outline-none focus:ring-warning"
+                />
+                {reasonError && (
+                  <p className="mt-1.5 text-[12px] text-danger">{reasonError}</p>
+                )}
+
+                <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    disabled={!chosen || submitting}
+                    onClick={() => chosen && void openEmergency(chosen.id)}
+                    className="transition-calm inline-flex items-center gap-2 rounded-xl bg-warning px-4 py-2 text-[13px] font-semibold text-cream hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Siren className="h-3.5 w-3.5" />
+                    {submitting ? "Logging…" : "Open record and log the reason"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBreakGlass(false);
+                      setQuery("");
+                      setChosen(null);
+                      setReason("");
+                      setReasonError(null);
+                    }}
+                    className="transition-calm text-[12.5px] text-ink-muted underline underline-offset-4 hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 

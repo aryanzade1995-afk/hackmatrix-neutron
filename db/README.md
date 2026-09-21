@@ -15,7 +15,7 @@ out a permission the database never issued.
 | File | What it does |
 |---|---|
 | `schema.sql` | Tables, the two roles, the grants, and the suppressed aggregate views |
-| `seed.sql` | The eleven synthetic visits used by the clinician demo, transcribed from `frontend/src/lib/demo-data.ts` |
+| `seed.sql` | The 23 synthetic visits (15 named patients) used by the clinician demo, transcribed from `frontend/src/lib/demo-data.ts` |
 | `bulk.sql` | ~1,300 generated rows so the admin dashboard has volume, deliberately uneven so some groups suppress and others don't |
 
 All data is synthetic. No real patient records are used anywhere in this project.
@@ -126,13 +126,20 @@ Insert succeeds, update and delete do not.
 
 ## Verified output
 
-Every command above was run against a real Postgres 16 instance with this
-schema, `seed.sql` and `bulk.sql` loaded — 265 patients, 1,311 visits:
+Every command above was re-run against a real Postgres 16 instance after the
+September 2026 data-realism pass (real Maharashtra-region names, ten diagnosis
+categories, ten new named clinician-demo patients) — with this schema,
+`seed.sql` and `bulk.sql` loaded: 276 patients, 1,323 visits:
 
 ```
 Admin   SELECT * FROM patients          ERROR: permission denied for table patients
 Admin   SELECT * FROM visits            ERROR: permission denied for table visits
-Admin   SELECT * FROM condition_totals  5 rows (Pune City/Dengue 223, Wagholi/Dengue 170, …)
+Admin   SELECT * FROM condition_totals  10 rows shown (LIMIT 10, ORDER BY case_count DESC):
+                                           Pune City/Dengue 207, Wagholi/Dengue 154,
+                                           Hadapsar/Dengue 106, Pune City/Diabetes 104,
+                                           Wagholi/Diabetes 81, Pune City/Hypertension 81,
+                                           Wagholi/Hypertension 55, Baramati/Dengue 54,
+                                           Hadapsar/Diabetes 52, Pune City/Viral fever 40
 Clin    SELECT * FROM patients          3 rows (Priya Nair, Aarav Kulkarni, Sunita Deshpande)
 Clin    DELETE FROM visits              ERROR: permission denied for table visits
 Clin    UPDATE visits                   ERROR: permission denied for table visits
@@ -142,14 +149,26 @@ Clin    INSERT INTO patients            INSERT 0 1
 Suppression measured on the same data:
 
 ```
-total (district, diagnosis) groups   30
-visible to admin (n >= 5)            20
-suppressed (n < 5)                   10
+total (district, diagnosis) groups   56
+visible to admin (n >= 5)            33
+suppressed (n < 5)                   23
 ```
 
-Worth noting which groups fall below the line: every one of the named demo
-patients' diagnoses does. An administrator cannot see Priya Nair's throat
-infection even in aggregate, because that cell has a count of one.
+Worth noting which groups fall below the line: every one of the named
+clinician-demo patients' diagnoses does — an administrator cannot see Priya
+Nair's throat infection, or Vikram Pawar's tuberculosis, or Komal Verma's
+cellulitis, even in aggregate, because each of those cells has a count of one
+or two. It also catches rarer conditions inside the bulk cohort: even in Pune
+City, the largest district, malaria only reached 4 recorded visits this run —
+below the threshold — while the same condition cleared it in Wagholi (6
+visits). That contrast is worth pointing at live: size of the district isn't
+what decides suppression, the count in that specific cell is.
+
+Because the generators in `bulk.sql` and `seed.sql` are deterministic (based
+on row number, not real randomness), re-running this exact proof against an
+unmodified checkout will reproduce these same numbers. If either file changes
+again, re-run the proof and update this section rather than trusting stale
+figures — an outdated "verified" count is worse than none.
 
 ---
 
@@ -164,10 +183,10 @@ means:
 - The rule is auditable in one place, in SQL, rather than scattered across handlers
 
 After loading only `seed.sql`, `district_aggregates` returns **zero rows** —
-eleven visits are not enough for any weekly group to reach five. That is the
-suppression working correctly, not a bug. `bulk.sql` adds volume so some groups
-clear the threshold while rare ones (malaria in Baramati, for instance) stay
-hidden.
+23 visits spread across 15 named patients are not enough for any weekly group
+to reach five. That is the suppression working correctly, not a bug. `bulk.sql`
+adds volume so some groups clear the threshold while rare ones (malaria in
+Pune City, for instance — see "Verified output" below) stay hidden.
 
 ---
 

@@ -36,6 +36,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sigma,
+  Siren,
   Timer,
   TriangleAlert,
 } from "lucide-react";
@@ -65,6 +66,11 @@ function ClinicianRecord() {
     findPatientById(patients, DEFAULT_PATIENT_ID)!;
 
   const visits = visitsForPatient(allVisits, patient.id);
+  // Display cue only. The record of this access is the database row written
+  // when the break-glass form was submitted — it exists whether or not this
+  // parameter is present, and removing it from the URL hides the banner, not
+  // the audit entry. Nobody should mistake the parameter for a control.
+  const viaEmergency = searchParams.get("emergency") === "1";
   const conflicts = findAllergyConflicts(visits, patient.allergies);
   const delta = changesSinceLastVisit(visits);
   const summary = buildSummary(patient, visits);
@@ -130,6 +136,21 @@ function ClinicianRecord() {
           </div>
         </div>
       </div>
+
+      {viaEmergency && (
+        <div className="mb-7 flex items-start gap-3.5 rounded-2xl border border-warning bg-warning-tint px-7 py-5">
+          <Siren className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <div>
+            <p className="text-[14.5px] font-semibold text-warning">
+              Opened via emergency access
+            </p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
+              The reason given has been written to the audit trail, where this entry
+              is marked distinctly rather than blending in with ordinary access.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* A patient registered but not yet seen. Shown plainly rather than
           rendering an empty record as though it were a complete one. */}

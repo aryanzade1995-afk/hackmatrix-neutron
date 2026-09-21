@@ -142,3 +142,39 @@ GRANT SELECT ON district_aggregates, condition_totals TO admin_role;
 
 -- Stop either role from acquiring table rights on anything added later.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM admin_role;
+
+-- ---------------------------------------------------------------------------
+-- Access log
+--
+-- Hash-chained: each row commits to the previous row's hash, so altering any
+-- entry breaks every hash after it. Append-only for the same reason visits
+-- are — an audit trail that can be edited is not an audit trail.
+-- ---------------------------------------------------------------------------
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS access_log (
+  id          BIGSERIAL PRIMARY KEY,
+  patient_id  TEXT REFERENCES patients(id),
+  actor       TEXT NOT NULL,
+  action      TEXT NOT NULL CHECK (action IN ('view_record', 'emergency_access')),
+  outcome     TEXT NOT NULL CHECK (outcome IN ('granted', 'denied')),
+  reason      TEXT,                  -- required by the API for emergency_access
+  prev_hash   TEXT NOT NULL,
+  hash        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_log_patient ON access_log(patient_id);
+
+COMMIT;
+
+-- The administrator role gets nothing here either, deliberately: every row
+-- names a patient, so the log is itself identified data and stays inside the
+-- same boundary as `patients` and `visits`.
+
+GRANT SELECT, INSERT ON access_log TO clinician_role;
+-- BIGSERIAL needs its own grant. GRANT INSERT on the table alone does not let
+-- a role draw the next value from the backing sequence.
+GRANT USAGE, SELECT ON SEQUENCE access_log_id_seq TO clinician_role;
+REVOKE ALL ON access_log FROM admin_role;
