@@ -87,8 +87,16 @@ class Patient(BaseModel):
 
 
 class PatientCreate(BaseModel):
-    """Body for POST /clinician/patients — the server assigns the id."""
+    """Body for POST /clinician/patients.
 
+    `id` is optional. The server assigns the next PT-#### when it is omitted,
+    but honours a client-supplied one if it is free — the registration screen
+    prints a QR encoding the id it generated, so the two must agree. Two
+    clients registering simultaneously could collide on the same id; the
+    insert then fails on the primary key rather than silently overwriting.
+    """
+
+    id: str | None = None
     name: str
     dob: Date
     gender: Gender
@@ -125,6 +133,7 @@ class VisitCreate(BaseModel):
     clinician database role has no UPDATE grant, so one would not work anyway.
     """
 
+    id: str | None = None
     patientId: str
     date: Date | None = None
     facility: str

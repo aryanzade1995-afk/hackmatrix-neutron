@@ -51,6 +51,34 @@ def _visit_from_row(row) -> Visit:
     )
 
 
+@router.get("/patients", response_model=list[Patient])
+def list_patients(limit: int = Query(default=500, le=2000)):
+    """Every patient, for the frontend store to hold in memory.
+
+    Fine at demo scale. A real deployment would paginate and push search to the
+    server rather than shipping the roster to every client.
+    """
+    with clinician_engine().connect() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM patients ORDER BY id LIMIT :limit"), {"limit": limit}
+        ).all()
+    return [_patient_from_row(r) for r in rows]
+
+
+@router.get("/visits", response_model=list[Visit])
+def list_visits(limit: int = Query(default=2000, le=5000)):
+    """Every visit, newest first. Same caveat as list_patients."""
+    with clinician_engine().connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT * FROM visits ORDER BY visit_date DESC, created_at DESC "
+                "LIMIT :limit"
+            ),
+            {"limit": limit},
+        ).all()
+    return [_visit_from_row(r) for r in rows]
+
+
 @router.get("/patients/search", response_model=list[Patient])
 def search_patients(q: str = Query(min_length=1)):
     """Case-insensitive match on name, phone or id — same semantics as
@@ -100,13 +128,26 @@ def get_visits(patient_id: str):
 def create_patient(body: PatientCreate):
     """Assigns the next PT-#### id, matching nextPatientId in the frontend."""
     with clinician_engine().begin() as conn:
-        highest = conn.execute(
-            text(
-                "SELECT COALESCE(MAX(NULLIF(regexp_replace(id,'\\D','','g'),'')::int), 0) "
-                "FROM patients WHERE id LIKE 'PT-%'"
-            )
-        ).scalar_one()
-        new_id = f"PT-{int(highest) + 1}"
+        if body.id:
+            # The registration screen prints a QR encoding the id it generated,
+            # so honour it rather than assigning a different one behind the
+            # printed code.
+            taken = conn.execute(
+                text("SELECT 1 FROM patients WHERE id = :id"), {"id": body.id}
+            ).one_or_none()
+            if taken:
+                raise HTTPException(
+                    status_code=409, detail=f"Patient id {body.id} already exists"
+                )
+            new_id = body.id
+        else:
+            highest = conn.execute(
+                text(
+                    "SELECT COALESCE(MAX(NULLIF(regexp_replace(id,'\\D','','g'),'')::int), 0) "
+                    "FROM patients WHERE id LIKE 'PT-%'"
+                )
+            ).scalar_one()
+            new_id = f"PT-{int(highest) + 1}"
 
         conn.execute(
             text(
@@ -146,7 +187,7 @@ def create_visit(body: VisitCreate):
     holds no UPDATE grant to do otherwise.
     """
     visit_date = body.date or date.today()
-    visit_id = f"v-{visit_date.isoformat()}-{body.patientId}-{_suffix()}"
+    visit_id = body.id or f"v-{visit_date.isoformat()}-{body.patientId}-{_suffix()}"
     display = visit_date.strftime("%d %b %Y")
 
     with clinician_engine().begin() as conn:
