@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Camera, CameraOff, Loader2 } from "lucide-react";
+import { Camera, CameraOff, ImageUp, Loader2 } from "lucide-react";
 
 /**
  * Reads a patient QR with the device camera.
@@ -81,6 +81,31 @@ export function QrScanner({
     setStatus("idle");
   }
 
+  /**
+   * Decode from a still image instead of a live camera.
+   *
+   * Two reasons this exists. It is a third fallback when the camera will not
+   * cooperate — the register screen downloads the QR as a PNG, and a phone
+   * photo works equally well. And unlike the camera path it can be exercised
+   * on a machine with no camera at all, which is how the decode path was
+   * tested.
+   */
+  async function decodeFile(file: File) {
+    setStatus("starting");
+    setError(null);
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode(containerId, { verbose: false });
+      const text = await scanner.scanFile(file, /* showImage */ false);
+      scanner.clear();
+      setStatus("idle");
+      onDecode(text.trim());
+    } catch {
+      setStatus("error");
+      setError("No QR code found in that image. Try a clearer photo of the code.");
+    }
+  }
+
   // Release the camera if the component goes away mid-scan.
   useEffect(() => {
     return () => {
@@ -109,14 +134,32 @@ export function QrScanner({
               Starting the camera…
             </span>
           ) : (
-            <button
-              type="button"
-              onClick={start}
-              className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
-            >
-              <Camera className="h-4 w-4" />
-              {status === "error" ? "Try the camera again" : "Scan with camera"}
-            </button>
+            <div className="flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={start}
+                className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
+              >
+                <Camera className="h-4 w-4" />
+                {status === "error" ? "Try the camera again" : "Scan with camera"}
+              </button>
+
+              <label className="transition-calm inline-flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted">
+                <ImageUp className="h-3.5 w-3.5" />
+                Upload a photo of the code
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  data-testid="qr-file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void decodeFile(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
           )}
         </div>
       )}
