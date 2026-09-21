@@ -157,6 +157,20 @@ class AggregateRow(BaseModel):
     week: Date | None = None
 
 
+class TrendSignal(BaseModel):
+    """A (district, diagnosis) pair whose latest week sits well above its own
+    trailing average. Arithmetic over already-suppressed aggregates — no model,
+    no prediction, and no new privacy surface."""
+
+    district: str
+    diagnosis: str
+    week: Date
+    currentCount: int
+    baselineAvg: float
+    ratio: float
+    severity: Literal["watch", "alert"]
+
+
 class Health(BaseModel):
     status: str
     clinicianRole: str | None = None

@@ -1,27 +1,41 @@
+"use client";
+
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle, SectionLabel } from "@/components/Card";
 import { FigAdministrator } from "@/components/Figures";
 import { adminTabs } from "@/lib/demo-data";
+import {
+  distinctFrom,
+  useAggregates,
+  useSignals,
+  useTrends,
+  type AggregateRow,
+} from "@/lib/adminData";
 import { ArrowUpRight, EyeOff, Lock, MessageCircle, Sparkles } from "lucide-react";
 
-const stats = [
-  { label: "Cases, last 30 days", value: "1,284", delta: "+8.2%", up: true },
-  { label: "Districts reporting", value: "6", delta: "all active", up: null },
-  { label: "Conditions tracked", value: "5", delta: "no change", up: null },
-  { label: "Groups suppressed", value: "12", delta: "+3", up: true },
-];
+/** Totals per condition, summed across districts. */
+function byCondition(rows: AggregateRow[]) {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    totals.set(r.diagnosis, (totals.get(r.diagnosis) ?? 0) + r.caseCount);
+  }
+  return [...totals.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+}
 
-const casesByCondition = [
-  { label: "Dengue", value: 412 },
-  { label: "Diabetes", value: 338 },
-  { label: "Hypertension", value: 296 },
-  { label: "Tuberculosis", value: 151 },
-  { label: "Malaria", value: 87 },
-];
-const maxCases = Math.max(...casesByCondition.map((c) => c.value));
-
-const trend = [24, 31, 28, 40, 52, 47, 61, 58, 70, 66, 74, 69];
+/** Weekly totals across every district and condition, oldest first. */
+function weeklySeries(rows: AggregateRow[]): number[] {
+  const byWeek = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.week) continue;
+    byWeek.set(r.week, (byWeek.get(r.week) ?? 0) + r.caseCount);
+  }
+  return [...byWeek.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, total]) => total);
+}
 
 function areaPaths(points: number[], w: number, h: number) {
   const max = Math.max(...points);
@@ -35,7 +49,49 @@ function areaPaths(points: number[], w: number, h: number) {
 }
 
 export default function AdminPage() {
+  const trends = useTrends();
+  const weekly = useAggregates();
+  const signals = useSignals();
+
+  const casesByCondition = byCondition(trends.data);
+  const maxCases = Math.max(1, ...casesByCondition.map((c) => c.value));
+  const series = weeklySeries(weekly.data);
+  // A single point cannot be drawn as a line; pad so the chart stays valid.
+  const trend = series.length >= 2 ? series : [0, 0];
   const { line, area, coords } = areaPaths(trend, 900, 120);
+
+  const { districts, diagnoses } = distinctFrom(trends.data);
+  const totalCases = trends.data.reduce((sum, r) => sum + r.caseCount, 0);
+  const live = trends.source === "api";
+
+  const stats = [
+    {
+      label: "Cases in view",
+      value: live ? totalCases.toLocaleString() : "—",
+      delta: live ? "above the privacy threshold" : "backend unavailable",
+      up: false,
+    },
+    {
+      label: "Districts reporting",
+      value: live ? String(districts.length) : "—",
+      delta: "all active",
+      up: null,
+    },
+    {
+      label: "Conditions tracked",
+      value: live ? String(diagnoses.length) : "—",
+      delta: "across the division",
+      up: null,
+    },
+    {
+      label: "Signals raised",
+      value: signals.source === "api" ? String(signals.data.length) : "—",
+      delta: signals.data.some((s) => s.severity === "alert")
+        ? "one or more alerts"
+        : "nothing unusual",
+      up: signals.data.length > 0,
+    },
+  ];
 
   return (
     <AppShell role="admin" userName="K. Iyer" tabs={adminTabs}>
@@ -76,7 +132,7 @@ export default function AdminPage() {
             <CardHeader
               title="Case trend"
               subtitle="Weekly reported cases across all conditions"
-              action={<Badge tone="neutral">12 weeks</Badge>}
+              action={<Badge tone="neutral">{trend.length} weeks</Badge>}
             />
             <div className="px-6 pb-5">
               <svg viewBox="0 0 900 130" className="h-36 w-full" role="img">
@@ -116,7 +172,7 @@ export default function AdminPage() {
                 />
               </svg>
               <div className="mt-1 flex justify-between text-[11.5px] text-ink-faint">
-                <span>12 weeks ago</span>
+                <span>{trend.length} weeks ago</span>
                 <span>This week</span>
               </div>
             </div>
@@ -176,21 +232,25 @@ export default function AdminPage() {
                 <SectionLabel tone="light">Privacy threshold active</SectionLabel>
               </div>
               <p className="text-display mt-4 text-[22px] text-cream">
-                <span className="nums">12</span> groups hidden
+                Fewer than <span className="nums">5</span> cases,
                 <br />
-                this period
+                and it is not here
               </p>
               <p className="mt-3 text-[13px] leading-relaxed text-cream-muted">
-                Any location–week–condition group with fewer than 5 cases is replaced
-                before it reaches this dashboard&apos;s database role — not filtered on
-                screen.
+                Any location–week–condition group below the threshold is removed inside
+                the database view, before it reaches this dashboard&apos;s role — not
+                filtered on screen.
               </p>
+              {/* No count of hidden groups is shown, because this connection
+                  genuinely cannot know it. Reporting a number here would mean
+                  the suppressed data had been read after all. */}
               <div className="mt-5 rounded-xl bg-white/[0.07] px-4 py-3.5 ring-1 ring-inset ring-white/10">
                 <p className="text-[12.5px] font-medium text-cream">
-                  Rural PHC Baramati · Malaria · this week
+                  How many groups are hidden
                 </p>
                 <p className="mt-1.5 text-[11.5px] text-cream-muted">
-                  suppressed — group size below threshold (n &lt; 5)
+                  unknown to this role — counting them would require reading the
+                  rows the threshold exists to hide
                 </p>
               </div>
             </div>

@@ -12,12 +12,15 @@ The /admin/prove endpoint below demonstrates this on demand.
 
 from __future__ import annotations
 
+from collections import defaultdict
+from statistics import mean
+
 from fastapi import APIRouter, Query
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from ..db import admin_engine
-from ..models import AggregateRow
+from ..models import AggregateRow, TrendSignal
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -73,6 +76,75 @@ def trends(limit: int = Query(default=100, le=1000)):
         AggregateRow(district=r.district, diagnosis=r.diagnosis, caseCount=r.case_count)
         for r in rows
     ]
+
+
+@router.get("/signals", response_model=list[TrendSignal])
+def signals(
+    ratio_threshold: float = Query(default=2.0, ge=1.1),
+    min_current_count: int = Query(default=8, ge=5),
+    min_baseline_weeks: int = Query(default=3, ge=1),
+    baseline_weeks: int = Query(default=8, ge=1, le=26),
+):
+    """Flags a (district, diagnosis) pair whose most recent week is well above
+    its own trailing average.
+
+    Arithmetic on `district_aggregates` and nothing more — no model, no
+    prediction. It runs on data that is already suppressed, so a flagged signal
+    can never expose a group smaller than the k-anonymity threshold.
+
+    A pair with too little history is skipped rather than flagged on thin
+    evidence; `min_baseline_weeks` stops one quiet fortnight reading as an
+    outbreak.
+
+    Note the deliberate limitation: a week suppressed for being under the
+    threshold is invisible here exactly as it is to a human reading the
+    dashboard, so the baseline is computed only from weeks the admin role could
+    see. "Correcting" for the missing weeks would leak the suppressed counts
+    back in through the side door — this is the right behaviour, not a bug.
+    """
+    with admin_engine().connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT district, diagnosis, week, case_count FROM district_aggregates "
+                "ORDER BY district, diagnosis, week"
+            )
+        ).all()
+
+    series: dict[tuple[str, str], list[tuple]] = defaultdict(list)
+    for r in rows:
+        series[(r.district, r.diagnosis)].append((r.week, r.case_count))
+
+    out: list[TrendSignal] = []
+    for (district, diagnosis), points in series.items():
+        if len(points) < min_baseline_weeks + 1:
+            continue
+        *history, (current_week, current_count) = points
+        baseline_points = history[-baseline_weeks:]
+        if len(baseline_points) < min_baseline_weeks:
+            continue
+
+        baseline_avg = mean(c for _, c in baseline_points)
+        if baseline_avg <= 0 or current_count < min_current_count:
+            continue
+
+        ratio = current_count / baseline_avg
+        if ratio < ratio_threshold:
+            continue
+
+        out.append(
+            TrendSignal(
+                district=district,
+                diagnosis=diagnosis,
+                week=current_week,
+                currentCount=current_count,
+                baselineAvg=round(baseline_avg, 1),
+                ratio=round(ratio, 2),
+                severity="alert" if ratio >= 3 else "watch",
+            )
+        )
+
+    out.sort(key=lambda s: s.ratio, reverse=True)
+    return out
 
 
 @router.get("/prove")
