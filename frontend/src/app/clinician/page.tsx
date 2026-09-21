@@ -31,6 +31,7 @@ import {
   ArrowUpRight,
   CheckCircle2,
   Minus,
+  FileText,
   Pill,
   Plus,
   ShieldAlert,
@@ -124,6 +125,13 @@ function ClinicianRecord() {
             >
               <Plus className="h-4 w-4" />
               Record a visit
+            </Link>
+            <Link
+              href={`/clinician/patient-summary?patient=${patient.id}`}
+              className="transition-calm inline-flex items-center gap-2 rounded-xl bg-white/[0.08] px-4 py-2 text-[13px] font-medium text-cream ring-1 ring-inset ring-white/15 hover:bg-white/[0.14]"
+            >
+              <FileText className="h-4 w-4" />
+              Summary for patient
             </Link>
             <div className="flex items-center gap-2 rounded-xl bg-white/[0.08] px-3.5 py-2 text-[12.5px] font-medium text-success-lift ring-1 ring-inset ring-white/10">
               <ShieldCheck className="h-4 w-4" />

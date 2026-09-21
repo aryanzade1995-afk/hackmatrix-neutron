@@ -52,6 +52,34 @@ export function frequencyShorthand(f: Frequency): string {
   return "TDS";
 }
 
+/** The same schedule in words a patient would use, not clinical shorthand. */
+export function plainFrequency(f: Frequency): string {
+  if (f.asNeeded) return "only when you need it";
+  const slots = [f.morning, f.afternoon, f.night].filter((n) => n > 0).length;
+  if (slots === 0) return "as directed";
+  if (slots === 1) {
+    if (f.night > 0) return "once a day, at night";
+    if (f.morning > 0) return "once a day, in the morning";
+    return "once a day";
+  }
+  if (slots === 2) return "twice a day";
+  return "three times a day";
+}
+
+/** "after food" → "after you eat". */
+export function plainFood(food: FoodTiming): string {
+  switch (food) {
+    case "Before food":
+      return "before you eat";
+    case "After food":
+      return "after you eat";
+    case "With food":
+      return "with your food";
+    case "Any time":
+      return "any time of day";
+  }
+}
+
 export function dosesPerDay(f: Frequency): number {
   if (f.asNeeded) return 0;
   return f.morning + f.afternoon + f.night;
