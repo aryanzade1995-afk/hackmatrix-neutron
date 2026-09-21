@@ -1,7 +1,14 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { Card, PageTitle, SectionLabel } from "@/components/Card";
 import { FigConsentCard } from "@/components/Figures";
+import { QrScanner } from "@/components/QrScanner";
+import { findPatientById } from "@/lib/clinical";
+import { useStore } from "@/lib/store";
 import { clinicianTabs } from "@/lib/demo-data";
 import { ArrowRight, Clock, ScanLine, ShieldCheck } from "lucide-react";
 
@@ -24,6 +31,26 @@ const steps = [
 ];
 
 export default function ScanPage() {
+  const router = useRouter();
+  const { patients } = useStore();
+  const [notFoundId, setNotFoundId] = useState<string | null>(null);
+
+  /**
+   * The QR encodes a patient id and nothing else. Finding a match opens the
+   * record; not finding one is a legitimate outcome with its own screen, not
+   * an error — a code can be valid and simply have no history behind it.
+   */
+  function handleDecode(value: string) {
+    setNotFoundId(null);
+    const patient = findPatientById(patients, value);
+    if (patient) {
+      router.push(`/clinician?patient=${patient.id}`);
+      return;
+    }
+    setNotFoundId(value);
+    router.push(`/clinician/not-found-record?patient=${encodeURIComponent(value)}`);
+  }
+
   return (
     <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
       <PageTitle
@@ -48,9 +75,26 @@ export default function ScanPage() {
             Waiting for a code…
           </p>
 
+          {/* Real camera. Every simulated path below stays available, because a
+              webcam failing on stage should not derail the demo. */}
+          <QrScanner onDecode={handleDecode} className="mt-5" />
+
+          {notFoundId && (
+            <p className="mt-3 max-w-xs text-center text-[12.5px] leading-relaxed text-warning">
+              Read code <span className="nums font-mono">{notFoundId}</span>, but no
+              patient matches it.
+            </p>
+          )}
+
+          <div className="mt-6 w-full border-t border-border pt-5">
+            <p className="text-center text-[11px] font-semibold uppercase tracking-label text-ink-faint">
+              Or simulate
+            </p>
+          </div>
+
           <Link
             href="/clinician"
-            className="transition-calm mt-5 inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
+            className="transition-calm mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-5 py-2.5 text-[13.5px] font-medium text-ink-muted hover:border-border-strong hover:text-ink"
           >
             Simulate a successful scan
             <ArrowRight className="h-4 w-4" />
