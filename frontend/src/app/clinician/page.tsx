@@ -10,6 +10,7 @@ import { RxBadge } from "@/components/RxLine";
 import { Card, CardHeader, SectionLabel } from "@/components/Card";
 import { Sparkline } from "@/components/Sparkline";
 import { ArtContinuity } from "@/components/Illustrations";
+import { buildSummary } from "@/lib/summary";
 import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
 import { accessLog, clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
@@ -34,7 +35,7 @@ import {
   Plus,
   ShieldAlert,
   ShieldCheck,
-  Sparkles,
+  Sigma,
   Timer,
   TriangleAlert,
 } from "lucide-react";
@@ -66,6 +67,7 @@ function ClinicianRecord() {
   const visits = visitsForPatient(allVisits, patient.id);
   const conflicts = findAllergyConflicts(visits, patient.allergies);
   const delta = changesSinceLastVisit(visits);
+  const summary = buildSummary(patient, visits);
   const facilityCount = new Set(visits.map((v) => v.facility)).size;
 
   return (
@@ -200,38 +202,51 @@ function ClinicianRecord() {
             <CardHeader
               eyebrow={
                 <Badge tone="sage">
-                  <Sparkles className="h-3 w-3" />
-                  AI-generated
+                  <Sigma className="h-3 w-3" />
+                  Generated summary
                 </Badge>
               }
               title="Clinical summary"
-              subtitle="Each claim cites the visit it came from. Sentences without a source are dropped before display."
+              subtitle="Computed from this patient's record. Every claim is built from the visit it cites, so an unsourced sentence cannot be produced."
             />
             <div className="px-7 pb-7">
-              <p className="font-serif text-[18px] leading-[1.78] tracking-[0.003em] text-ink">
-                Priya has been managing type 2 diabetes on metformin for over three
-                years, with her most recent follow-up showing stable control
-                <Cite n={1} />. She has had two emergency admissions for hypertensive
-                episodes, most recently in March 2026
-                <Cite n={2} />, and is currently on amlodipine
-                <Cite n={2} />. She has a recorded allergy to penicillin
-                <Cite n={3} /> — avoid penicillin-class antibiotics.
-              </p>
-              <div className="mt-6 border-t border-border pt-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <SectionLabel>Sources</SectionLabel>
-                  <Badge tone="outline">1 · Visit 12 Aug 2026</Badge>
-                  <Badge tone="outline">2 · Visit 03 Mar 2026</Badge>
-                  <Badge tone="outline">3 · Visit 02 Jun 2023</Badge>
-                </div>
-              </div>
+              {summary.empty ? (
+                <p className="text-[13.5px] text-ink-faint">
+                  Nothing to summarise yet — no visits are recorded.
+                </p>
+              ) : (
+                <>
+                  <p className="font-serif text-[18px] leading-[1.78] tracking-[0.003em] text-ink">
+                    {summary.sentences.map((s, i) => (
+                      <span key={i}>
+                        <span className={s.tone === "alert" ? "text-danger" : undefined}>
+                          {s.text}
+                        </span>
+                        {s.cites.map((n) => (
+                          <Cite key={n} n={n} />
+                        ))}{" "}
+                      </span>
+                    ))}
+                  </p>
+                  <div className="mt-6 border-t border-border pt-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SectionLabel>Sources</SectionLabel>
+                      {summary.sources.map((v, i) => (
+                        <Badge key={v.id} tone="outline">
+                          {i + 1} · {v.display} · {v.facility}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </Card>
 
           <Card>
             <CardHeader
               title="Care timeline"
-              subtitle={`${visits.length} visits across ${facilityCount} facilities, most recent first`}
+              subtitle={`${visits.length} ${visits.length === 1 ? "visit" : "visits"} across ${facilityCount} ${facilityCount === 1 ? "facility" : "facilities"}, most recent first`}
             />
             {/* One continuous trace across the years — the shape of the record
                 below, kept faint so it never competes with it */}
