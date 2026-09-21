@@ -3,7 +3,7 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { Badge } from "@/components/Badge";
+import { RxBadge } from "@/components/RxLine";
 import { Card, CardHeader, PageTitle } from "@/components/Card";
 import { clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
 import { useStore } from "@/lib/store";
@@ -74,18 +74,8 @@ function HistoryView() {
                   <div className="flex shrink-0 flex-wrap justify-end gap-2">
                     {visit.prescriptions.map((p) => {
                       const clash = clashes.some((c) => c.prescription.drug === p.drug);
-                      return clash ? (
-                        <span
-                          key={p.drug}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-danger-tint px-2.5 py-1 text-[11.5px] font-semibold text-danger ring-1 ring-inset ring-danger"
-                        >
-                          <TriangleAlert className="h-3 w-3" />
-                          {p.drug} {p.dose}
-                        </span>
-                      ) : (
-                        <Badge key={p.drug} tone="neutral">
-                          {p.drug} {p.dose}
-                        </Badge>
+                      return (
+                        <RxBadge key={p.drug} prescription={p} conflict={clash} />
                       );
                     })}
                   </div>

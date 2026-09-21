@@ -1,10 +1,12 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Suspense } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
+import { RxBadge } from "@/components/RxLine";
 import { Card, CardHeader, SectionLabel } from "@/components/Card";
 import { Sparkline } from "@/components/Sparkline";
 import { ArtContinuity } from "@/components/Illustrations";
@@ -29,6 +31,7 @@ import {
   CheckCircle2,
   Minus,
   Pill,
+  Plus,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -106,6 +109,14 @@ function ClinicianRecord() {
           </div>
 
           <div className="flex flex-col items-end gap-2.5">
+            {/* The doctor is already looking at the record when they need this */}
+            <Link
+              href={`/clinician/visit/new?patient=${patient.id}`}
+              className="transition-calm inline-flex items-center gap-2 rounded-xl bg-cream px-4 py-2 text-[13px] font-semibold text-forest-deep hover:bg-white"
+            >
+              <Plus className="h-4 w-4" />
+              Record a visit
+            </Link>
             <div className="flex items-center gap-2 rounded-xl bg-white/[0.08] px-3.5 py-2 text-[12.5px] font-medium text-success-lift ring-1 ring-inset ring-white/10">
               <ShieldCheck className="h-4 w-4" />
               Verified via QR consent token
@@ -157,7 +168,7 @@ function ClinicianRecord() {
                   >
                     <Pill className="h-4 w-4 shrink-0 text-danger" />
                     <span className="font-semibold text-ink">
-                      {c.prescription.drug} {c.prescription.dose}
+                      {c.prescription.drug} {c.prescription.strength}
                     </span>
                     <span className="text-ink-muted">
                       prescribed at {c.visit.facility} on {c.visit.display}
@@ -274,18 +285,8 @@ function ClinicianRecord() {
                             const clash = visitConflicts.some(
                               (c) => c.prescription.drug === p.drug,
                             );
-                            return clash ? (
-                              <span
-                                key={p.drug}
-                                className="inline-flex items-center gap-1.5 rounded-full bg-danger-tint px-2.5 py-1 text-[11.5px] font-semibold text-danger ring-1 ring-inset ring-danger"
-                              >
-                                <TriangleAlert className="h-3 w-3" />
-                                Rx · {p.drug} {p.dose} — allergy conflict
-                              </span>
-                            ) : (
-                              <Badge key={p.drug} tone="neutral">
-                                Rx · {p.drug} {p.dose}
-                              </Badge>
+                            return (
+                              <RxBadge key={p.drug} prescription={p} conflict={clash} />
                             );
                           })}
                           {visit.admission && <Badge tone="warning">ER admission</Badge>}

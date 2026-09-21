@@ -133,7 +133,7 @@ export default function RegisterPage() {
       />
 
       {created ? (
-        <Card>
+        <Card className="max-w-3xl">
           <div className="px-7 py-7">
             <SectionLabel>Registered</SectionLabel>
             <h2 className="text-display mt-2 text-[22px] text-ink">
@@ -166,7 +166,7 @@ export default function RegisterPage() {
           </div>
         </Card>
       ) : (
-        <Card>
+        <Card className="max-w-3xl">
           <form onSubmit={handleSubmit} noValidate className="px-7 py-7">
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div className="sm:col-span-2">
@@ -206,7 +206,7 @@ export default function RegisterPage() {
                 </select>
               </Field>
 
-              <Field label="Phone number" hint="optional — so their QR can be resent if lost">
+              <Field label="Phone number" hint="optional">
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}

@@ -7,6 +7,9 @@
  * `visits` table works — filtered by patient rather than nested per patient.
  */
 
+import { MEDICINES, type FoodTiming, type Frequency } from "./formulary";
+import { buildPrescription, type Prescription as PrescriptionType } from "./prescribing";
+
 /** Drug classes we can reason about. An allergy matches a prescription when
  *  both carry the same class — which is how the conflict check works. */
 export type DrugClass =
@@ -24,11 +27,7 @@ export const DRUG_CLASSES: DrugClass[] = [
   "nsaid",
 ];
 
-export type Prescription = {
-  drug: string;
-  dose: string;
-  drugClass: DrugClass | "other";
-};
+export type { Prescription } from "./prescribing";
 
 export type Vitals = {
   systolic?: number;
@@ -70,7 +69,7 @@ export type Visit = {
   facility: string;
   diagnosis: string;
   notes: string;
-  prescriptions: Prescription[];
+  prescriptions: PrescriptionType[];
   vitals: Vitals;
   admission?: boolean;
   /** structured detail captured at entry — never used to infer a diagnosis */
@@ -80,6 +79,20 @@ export type Visit = {
   /** append-only correction link: this visit replaces an earlier one */
   supersedes?: string;
 };
+
+/** Seed helper — looks the medicine up in the formulary so the seeded visits
+ *  carry exactly the same shape a doctor would produce through the UI. */
+function rx(
+  drug: string,
+  strength: string,
+  frequency: Frequency,
+  food: FoodTiming,
+  durationDays: number | null,
+): PrescriptionType {
+  const medicine = MEDICINES.find((m) => m.drug === drug);
+  if (!medicine) throw new Error(`Unknown medicine in seed data: ${drug}`);
+  return buildPrescription(medicine, { strength, frequency, food, durationDays });
+}
 
 export const FACILITIES = [
   "PHC Wagholi",
@@ -184,8 +197,8 @@ export const visits: Visit[] = [
     diagnosis: "Routine diabetes follow-up",
     notes: "HbA1c stable at 6.8. Continue current dose, review in six months.",
     prescriptions: [
-      { drug: "Metformin", dose: "500mg", drugClass: "biguanide" },
-      { drug: "Amlodipine", dose: "5mg", drugClass: "calcium-channel-blocker" },
+      rx("Metformin", "500mg", { morning: 1, afternoon: 0, night: 1 }, "After food", null),
+      rx("Amlodipine", "5mg", { morning: 1, afternoon: 0, night: 0 }, "Any time", null),
     ],
     vitals: { systolic: 138, diastolic: 86, hba1c: 6.8, weightKg: 64, heartRate: 78 },
   },
@@ -198,7 +211,7 @@ export const visits: Visit[] = [
     diagnosis: "Throat infection",
     notes:
       "Seen at a facility with no access to her records. Penicillin-class antibiotic prescribed without sight of the allergy noted at PHC Wagholi in 2023.",
-    prescriptions: [{ drug: "Amoxicillin", dose: "500mg", drugClass: "penicillin" }],
+    prescriptions: [rx("Amoxicillin", "500mg", { morning: 1, afternoon: 1, night: 1 }, "After food", 5)],
     vitals: { systolic: 142, diastolic: 88, weightKg: 64.5, heartRate: 82 },
   },
   {
@@ -210,7 +223,7 @@ export const visits: Visit[] = [
     diagnosis: "Hypertensive episode, ER admission",
     notes: "Presented with BP 178/104. Stabilised overnight, discharged next morning.",
     prescriptions: [
-      { drug: "Amlodipine", dose: "5mg", drugClass: "calcium-channel-blocker" },
+      rx("Amlodipine", "5mg", { morning: 1, afternoon: 0, night: 0 }, "Any time", null),
     ],
     vitals: { systolic: 178, diastolic: 104, weightKg: 65, heartRate: 96 },
     admission: true,
@@ -224,7 +237,7 @@ export const visits: Visit[] = [
     diagnosis: "Hypertensive episode, ER admission",
     notes: "Second hypertensive episode. Started on amlodipine.",
     prescriptions: [
-      { drug: "Amlodipine", dose: "5mg", drugClass: "calcium-channel-blocker" },
+      rx("Amlodipine", "5mg", { morning: 1, afternoon: 0, night: 0 }, "Any time", null),
     ],
     vitals: { systolic: 172, diastolic: 101, weightKg: 66, heartRate: 94 },
     admission: true,
@@ -237,7 +250,9 @@ export const visits: Visit[] = [
     facility: "PHC Wagholi",
     diagnosis: "Diabetes diagnosis, initial workup",
     notes: "Fasting glucose 156. Type 2 diabetes confirmed. Penicillin allergy recorded.",
-    prescriptions: [{ drug: "Metformin", dose: "500mg", drugClass: "biguanide" }],
+    prescriptions: [
+      rx("Metformin", "500mg", { morning: 1, afternoon: 0, night: 1 }, "After food", null),
+    ],
     vitals: { systolic: 150, diastolic: 92, hba1c: 7.9, weightKg: 68, heartRate: 88 },
   },
 
@@ -250,7 +265,7 @@ export const visits: Visit[] = [
     facility: "Sub-Center Hadapsar",
     diagnosis: "Acute gastroenteritis",
     notes: "Mild dehydration. ORS advised, follow up if symptoms persist beyond 3 days.",
-    prescriptions: [{ drug: "ORS", dose: "1 sachet", drugClass: "other" }],
+    prescriptions: [rx("ORS", "1 sachet in 1 L", { morning: 0, afternoon: 0, night: 0, asNeeded: true }, "Any time", 3)],
     vitals: { weightKg: 22, heartRate: 104 },
     chiefComplaint: "Diarrhea",
     symptomTags: ["1-2 days", "Vomiting"],
@@ -264,7 +279,7 @@ export const visits: Visit[] = [
     facility: "Sub-Center Hadapsar",
     diagnosis: "Upper respiratory infection",
     notes: "Viral. Symptomatic care only.",
-    prescriptions: [{ drug: "Paracetamol", dose: "Syrup, 5ml", drugClass: "other" }],
+    prescriptions: [rx("Paracetamol", "125mg/5ml syrup", { morning: 1, afternoon: 1, night: 1 }, "After food", 3)],
     vitals: { weightKg: 21, heartRate: 98 },
     chiefComplaint: "Cough / cold",
     symptomTags: ["3-5 days"],
@@ -281,7 +296,7 @@ export const visits: Visit[] = [
     diagnosis: "Routine hypertension follow-up",
     notes: "BP well controlled on current dose.",
     prescriptions: [
-      { drug: "Amlodipine", dose: "5mg", drugClass: "calcium-channel-blocker" },
+      rx("Amlodipine", "5mg", { morning: 1, afternoon: 0, night: 0 }, "Any time", null),
     ],
     vitals: { systolic: 134, diastolic: 84, weightKg: 58, heartRate: 74 },
   },
@@ -293,7 +308,7 @@ export const visits: Visit[] = [
     facility: "Rural PHC Baramati",
     diagnosis: "Joint pain",
     notes: "Reaction to ibuprofen noted and recorded as an allergy.",
-    prescriptions: [{ drug: "Paracetamol", dose: "500mg", drugClass: "other" }],
+    prescriptions: [rx("Paracetamol", "500mg", { morning: 1, afternoon: 1, night: 1 }, "After food", 3)],
     vitals: { systolic: 146, diastolic: 90, weightKg: 59, heartRate: 80 },
     chiefComplaint: "Body ache",
     symptomTags: ["5+ days"],
@@ -309,7 +324,7 @@ export const visits: Visit[] = [
     facility: "PHC Wagholi",
     diagnosis: "Laceration, left forearm",
     notes: "Cleaned and dressed. Tetanus status confirmed current.",
-    prescriptions: [{ drug: "Paracetamol", dose: "500mg", drugClass: "other" }],
+    prescriptions: [rx("Paracetamol", "500mg", { morning: 1, afternoon: 1, night: 1 }, "After food", 3)],
     vitals: { systolic: 124, diastolic: 78, weightKg: 71, heartRate: 76 },
     chiefComplaint: "Injury / wound",
     symptomTags: ["Bleeding stopped"],
@@ -325,7 +340,7 @@ export const visits: Visit[] = [
     facility: "District Hospital Pune",
     diagnosis: "Asthma review",
     notes: "Inhaler technique reviewed. No night symptoms reported.",
-    prescriptions: [{ drug: "Salbutamol inhaler", dose: "2 puffs PRN", drugClass: "other" }],
+    prescriptions: [rx("Salbutamol inhaler", "100mcg/puff", { morning: 0, afternoon: 0, night: 0, asNeeded: true }, "Any time", null)],
     vitals: { systolic: 118, diastolic: 74, weightKg: 62, heartRate: 72 },
   },
 ];
@@ -510,47 +525,9 @@ export const chiefComplaints: ChiefComplaint[] = [
   { id: "other", label: "Other", followUps: [DURATION] },
 ];
 
-/* ------------------------------------------------------------------ *
- * What each facility actually stocks
- * ------------------------------------------------------------------ */
-
-export type MedicineOption = {
-  drug: string;
-  drugClass: DrugClass | "other";
-  adultDose: string;
-  /** omitted where the drug is not appropriate under 12 */
-  childDose?: string;
-};
-
-const CORE: MedicineOption[] = [
-  { drug: "Paracetamol", drugClass: "other", adultDose: "500mg", childDose: "Syrup, 5ml" },
-  { drug: "ORS", drugClass: "other", adultDose: "1 sachet", childDose: "1 sachet" },
-  { drug: "Metformin", drugClass: "biguanide", adultDose: "500mg" },
-  { drug: "Amlodipine", drugClass: "calcium-channel-blocker", adultDose: "5mg" },
-  { drug: "Amoxicillin", drugClass: "penicillin", adultDose: "500mg", childDose: "Syrup, 125mg" },
-  { drug: "Azithromycin", drugClass: "macrolide", adultDose: "500mg", childDose: "Syrup, 200mg" },
-  { drug: "Ibuprofen", drugClass: "nsaid", adultDose: "400mg" },
-  { drug: "Cetirizine", drugClass: "other", adultDose: "10mg", childDose: "Syrup, 2.5ml" },
-  { drug: "Salbutamol inhaler", drugClass: "other", adultDose: "2 puffs PRN", childDose: "1 puff PRN" },
-  { drug: "Iron + folic acid", drugClass: "other", adultDose: "1 tablet daily" },
-  { drug: "Zinc", drugClass: "other", adultDose: "20mg", childDose: "10mg" },
-  { drug: "Antiseptic dressing", drugClass: "other", adultDose: "Topical", childDose: "Topical" },
-];
-
-export const facilityFormulary: Record<string, MedicineOption[]> = {
-  "PHC Wagholi": CORE,
-  "District Hospital Pune": [
-    ...CORE,
-    { drug: "Atorvastatin", drugClass: "other", adultDose: "10mg" },
-    { drug: "Insulin (regular)", drugClass: "other", adultDose: "As charted" },
-  ],
-  "Rural PHC Baramati": CORE.filter((m) => m.drug !== "Insulin (regular)"),
-  "Sub-Center Hadapsar": CORE.filter((m) =>
-    ["Paracetamol", "ORS", "Zinc", "Cetirizine", "Antiseptic dressing", "Iron + folic acid"].includes(
-      m.drug,
-    ),
-  ),
-};
+/* Formulary now lives in formulary.ts — richer shape, facility-aware. */
+export { formularyFor, MEDICINES, MEDICINE_CATEGORIES } from "./formulary";
+export type { MedicineOption, DoseForm, Route, FoodTiming, Frequency, MedicineCategory } from "./formulary";
 
 /* ------------------------------------------------------------------ *
  * Access log and nav
@@ -593,6 +570,8 @@ export const accessLog = [
 
 export const clinicianTabs = [
   { label: "Scan", href: "/clinician/scan" },
+  { label: "Register", href: "/clinician/register" },
+  { label: "Find patient", href: "/clinician/find" },
   { label: "Record", href: "/clinician" },
   { label: "Visit history", href: "/clinician/history" },
   { label: "Audit log", href: "/clinician/audit" },

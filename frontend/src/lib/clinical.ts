@@ -1,13 +1,13 @@
 import type {
   Allergy,
   ChiefComplaint,
-  MedicineOption,
   Patient,
-  Prescription,
   Visit,
   Vitals,
 } from "./demo-data";
-import { facilityFormulary } from "./demo-data";
+import { formularyFor, type MedicineOption } from "./formulary";
+import type { Prescription } from "./prescribing";
+import { formatFrequency } from "./prescribing";
 
 /* ------------------------------------------------------------------ *
  * Patients
@@ -91,7 +91,7 @@ export function topMedicinesForDiagnosis(
   facility: string,
   limit = 3,
 ): MedicineOption[] {
-  const formulary = facilityFormulary[facility] ?? [];
+  const formulary = formularyFor(facility);
   const target = diagnosis.trim().toLowerCase();
 
   if (target) {
@@ -134,6 +134,62 @@ export function lastPrescriptionForPatient(
 
   const latest = mine[0];
   return latest ? { prescriptions: latest.prescriptions, visit: latest } : null;
+}
+
+/**
+ * Complaints ordered by how often this facility has actually recorded them,
+ * commonest first, with the rest following in their declared order. A PHC's
+ * caseload is dominated by a handful of presentations, so this keeps the
+ * common case to one tap without hiding anything.
+ */
+export function rankedComplaintsFor(
+  visits: Visit[],
+  complaints: ChiefComplaint[],
+  facility: string,
+): ChiefComplaint[] {
+  const counts = new Map<string, number>();
+  for (const v of visits) {
+    if (v.facility !== facility || !v.chiefComplaint) continue;
+    counts.set(v.chiefComplaint, (counts.get(v.chiefComplaint) ?? 0) + 1);
+  }
+
+  return [...complaints].sort((a, b) => {
+    const diff = (counts.get(b.label) ?? 0) - (counts.get(a.label) ?? 0);
+    if (diff !== 0) return diff;
+    return complaints.indexOf(a) - complaints.indexOf(b);
+  });
+}
+
+/**
+ * Medicines prescribed most recently at this facility — the working
+ * repertoire, which emerges from use rather than being configured.
+ *
+ * Note: visits carry no prescriber field yet, so this is facility-level.
+ * Once the backend records who wrote each prescription this can narrow to
+ * the signed-in clinician.
+ */
+export function recentlyPrescribed(
+  visits: Visit[],
+  facility: string,
+  formulary: MedicineOption[],
+  limit = 6,
+): MedicineOption[] {
+  const seen: string[] = [];
+  const ordered = [...visits]
+    .filter((v) => v.facility === facility)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  for (const visit of ordered) {
+    for (const p of visit.prescriptions) {
+      if (!seen.includes(p.drug)) seen.push(p.drug);
+    }
+    if (seen.length >= limit) break;
+  }
+
+  return seen
+    .map((drug) => formulary.find((m) => m.drug === drug))
+    .filter((m): m is MedicineOption => Boolean(m))
+    .slice(0, limit);
 }
 
 /** Diagnosis text already used at this facility, for typeahead only. */
@@ -226,7 +282,7 @@ const VITAL_LABELS: Record<VitalKey, { label: string; unit: string; lowerIsBette
 };
 
 function drugKey(p: Prescription) {
-  return `${p.drug} ${p.dose}`;
+  return `${p.drug} ${p.strength}`;
 }
 
 /**
@@ -269,12 +325,12 @@ export function changesSinceLastVisit(visits: Visit[]): {
 
   for (const [key, p] of currentDrugs) {
     if (!everPrescribedBefore.has(key)) {
-      changes.push({ kind: "started", label: p.drug, detail: p.dose });
+      changes.push({ kind: "started", label: p.drug, detail: `${p.strength} · ${formatFrequency(p.frequency)}` });
     }
   }
   for (const [key, p] of previousDrugs) {
     if (!currentDrugs.has(key)) {
-      changes.push({ kind: "stopped", label: p.drug, detail: p.dose });
+      changes.push({ kind: "stopped", label: p.drug, detail: `${p.strength} · ${formatFrequency(p.frequency)}` });
     }
   }
 
