@@ -1,0 +1,114 @@
+# Backend — FastAPI over two database roles
+
+The design in one sentence: **there are two database connections, one per role,
+and the administrator's connection has no grant on the identified tables.**
+
+`routers/admin.py` is not trusted to avoid patient data — it is incapable of
+reaching it. A query added there by mistake raises `permission denied` instead of
+quietly returning records. See `app/db.py` and `db/README.md`.
+
+---
+
+## Run it
+
+```bash
+cd backend
+pip install -r requirements.txt
+cp .env.example .env          # fill in both connection strings
+uvicorn app.main:app --reload --port 8000
+```
+
+Interactive docs at `http://localhost:8000/docs`.
+
+The database must exist first — see `db/README.md`.
+
+---
+
+## Endpoints
+
+### Meta
+
+| | |
+|---|---|
+| `GET /health` | Reports which database role each connection authenticates as |
+
+```json
+{ "status": "ok", "clinicianRole": "clinician_role", "adminRole": "admin_role" }
+```
+
+### Clinician — runs on the clinician engine
+
+| | |
+|---|---|
+| `GET /clinician/patients/{id}` | One patient |
+| `GET /clinician/patients/search?q=` | Name, phone or id; same semantics as `findPatientsByQuery` |
+| `GET /clinician/patients/{id}/visits` | Visits, newest first |
+| `POST /clinician/patients` | Server assigns the next `PT-####` |
+| `POST /clinician/visits` | Appends; server assigns id and display date |
+
+There is no `PUT`, `PATCH` or `DELETE` for visits, and there should never be.
+A correction is a new row carrying `supersedes`. The clinician role holds no
+`UPDATE` grant, so such a route would fail at the database regardless.
+
+### Administrator — runs on the admin engine
+
+| | |
+|---|---|
+| `GET /admin/aggregates?district=&diagnosis=` | Weekly counts from `district_aggregates` |
+| `GET /admin/trends` | Totals from `condition_totals` |
+| `GET /admin/prove` | Attempts to read identified tables and reports the refusal |
+
+---
+
+## `GET /admin/prove`
+
+The `psql` proof from `db/README.md`, over HTTP, so it can be shown live without
+a terminal:
+
+```json
+{
+  "patients":   { "blocked": true, "detail": "permission denied for table patients" },
+  "visits":     { "blocked": true, "detail": "permission denied for table visits" },
+  "aggregates": { "blocked": false, "visibleGroups": 20 },
+  "connectedAs": "admin_role",
+  "summary": "Identified tables are unreachable on this connection; only suppressed aggregates are readable. Enforced by Postgres grants, not application code."
+}
+```
+
+If `blocked` were ever `false` for `patients` or `visits`, that would be a
+serious finding — the endpoint reports it rather than hiding it.
+
+---
+
+## Verified
+
+Run against Postgres 16 with `schema.sql`, `seed.sql` and `bulk.sql` loaded
+(265 patients, 1,311 visits):
+
+```
+GET  /health                              clinician_role / admin_role
+GET  /clinician/patients/PT-2291          Priya Nair, penicillin allergy
+GET  /clinician/patients/PT-2291/visits   5 visits, prescriptions intact
+GET  /clinician/patients/search?q=priya   ['Priya Nair']
+GET  /clinician/patients/search?q=96…77   ['Sunita Deshpande']   (phone match)
+POST /clinician/patients                  201, id PT-2448
+POST /clinician/visits                    201, persisted and read back
+GET  /admin/trends                        Pune City/Dengue 223, Wagholi/Dengue 170…
+GET  /admin/prove                         both identified tables blocked
+PUT/PATCH/DELETE /clinician/visits/…      404 — no such route
+```
+
+JSON field names are camelCase and match the frontend's TypeScript types
+field-for-field, so wiring `StoreProvider` to these endpoints needs no type
+changes in any page.
+
+---
+
+## Not built
+
+- **Authentication.** `/login` is a cosmetic role picker. The *data* separation
+  is real and provable; deciding which role a human gets is not built. Say so in
+  the demo rather than letting a judge find it.
+- **The audit log** is still frontend mock data, not a table.
+- **Rate limiting and query budgets.** A threshold on single queries does not
+  stop someone differencing overlapping aggregates over time.
