@@ -192,6 +192,70 @@ export function recentlyPrescribed(
     .slice(0, limit);
 }
 
+/* ------------------------------------------------------------------ *
+ * Care gaps
+ * ------------------------------------------------------------------ */
+
+export type FollowUpGap = {
+  patient: Patient;
+  lastVisit: Visit;
+  drug: string;
+  ongoingSince: string;
+  daysSinceLastVisit: number;
+};
+
+/**
+ * Patients on an open-ended medicine — no stop date, so the long-term case:
+ * diabetes, hypertension, asthma — who have not been seen in `thresholdDays`.
+ *
+ * This reports an attendance gap and nothing more. It says nothing about
+ * whether the gap matters for a given patient, does not infer a diagnosis, and
+ * makes no clinical recommendation. Someone stable on a repeat prescription
+ * and someone who has stopped taking it look identical from here; only the
+ * clinician can tell them apart.
+ */
+export function overdueFollowUps(
+  patients: Patient[],
+  visits: Visit[],
+  facility: string,
+  thresholdDays = 90,
+  asOf: Date = new Date(),
+): FollowUpGap[] {
+  const out: FollowUpGap[] = [];
+
+  for (const patient of patients.filter((p) => p.facility === facility)) {
+    const theirs = visitsForPatient(visits, patient.id);
+    if (theirs.length === 0) continue;
+
+    // Open-ended prescriptions only. A five-day antibiotic course finishing
+    // is not a care gap.
+    const ongoing = theirs
+      .flatMap((v) =>
+        v.prescriptions
+          .filter((p) => p.durationDays === null)
+          .map((p) => ({ prescription: p, visit: v })),
+      )
+      .sort((a, b) => a.visit.date.localeCompare(b.visit.date));
+    if (ongoing.length === 0) continue;
+
+    const last = [...theirs].sort((a, b) => b.date.localeCompare(a.date))[0];
+    const daysSince = Math.floor(
+      (asOf.getTime() - new Date(last.date).getTime()) / 86_400_000,
+    );
+    if (daysSince < thresholdDays) continue;
+
+    out.push({
+      patient,
+      lastVisit: last,
+      drug: ongoing[0].prescription.drug,
+      ongoingSince: ongoing[0].visit.date,
+      daysSinceLastVisit: daysSince,
+    });
+  }
+
+  return out.sort((a, b) => b.daysSinceLastVisit - a.daysSinceLastVisit);
+}
+
 /** Diagnosis text already used at this facility, for typeahead only. */
 export function pastDiagnosesAt(visits: Visit[], facility: string): string[] {
   const seen = new Set<string>();
