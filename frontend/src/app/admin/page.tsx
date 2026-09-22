@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle, SectionLabel } from "@/components/Card";
@@ -8,11 +10,24 @@ import { adminTabs } from "@/lib/demo-data";
 import {
   distinctFrom,
   useAggregates,
+  useFacilities,
   useSignals,
   useTrends,
+  weeklyByCondition,
   type AggregateRow,
 } from "@/lib/adminData";
-import { ArrowUpRight, EyeOff, Lock, MessageCircle, Sparkles } from "lucide-react";
+import { CHART, SERIES, heatColor, weekLabel } from "@/components/chartTheme";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ArrowUpRight, EyeOff, Loader2, Lock, SlidersHorizontal } from "lucide-react";
 
 /** Totals per condition, summed across districts. */
 function byCondition(rows: AggregateRow[]) {
@@ -25,40 +40,21 @@ function byCondition(rows: AggregateRow[]) {
     .sort((a, b) => b.value - a.value);
 }
 
-/** Weekly totals across every district and condition, oldest first. */
-function weeklySeries(rows: AggregateRow[]): number[] {
-  const byWeek = new Map<string, number>();
-  for (const r of rows) {
-    if (!r.week) continue;
-    byWeek.set(r.week, (byWeek.get(r.week) ?? 0) + r.caseCount);
-  }
-  return [...byWeek.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([, total]) => total);
-}
-
-function areaPaths(points: number[], w: number, h: number) {
-  const max = Math.max(...points);
-  const step = w / (points.length - 1);
-  const coords = points.map((p, i) => [i * step, h - (p / max) * h] as const);
-  const line = coords
-    .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
-    .join(" ");
-  const area = `${line} L${w},${h} L0,${h} Z`;
-  return { line, area, coords };
+/** Whole weeks between a week-start date and today. */
+function weeksSince(iso: string): number {
+  const then = new Date(iso).getTime();
+  return Math.max(0, Math.floor((Date.now() - then) / (7 * 86_400_000)));
 }
 
 export default function AdminPage() {
   const trends = useTrends();
   const weekly = useAggregates();
   const signals = useSignals();
+  const facilities = useFacilities();
 
   const casesByCondition = byCondition(trends.data);
   const maxCases = Math.max(1, ...casesByCondition.map((c) => c.value));
-  const series = weeklySeries(weekly.data);
-  // A single point cannot be drawn as a line; pad so the chart stays valid.
-  const trend = series.length >= 2 ? series : [0, 0];
-  const { line, area, coords } = areaPaths(trend, 900, 120);
+  const { conditions, series } = weeklyByCondition(weekly.data, 4);
 
   const { districts, diagnoses } = distinctFrom(trends.data);
   const totalCases = trends.data.reduce((sum, r) => sum + r.caseCount, 0);
@@ -130,51 +126,81 @@ export default function AdminPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader
-              title="Case trend"
-              subtitle="Weekly reported cases across all conditions"
-              action={<Badge tone="neutral">{trend.length} weeks</Badge>}
+              title="Case trend by condition"
+              subtitle="Weekly counts for the busiest conditions, summed across districts. Hover any week for exact numbers."
+              action={<Badge tone="neutral">{series.length} weeks</Badge>}
             />
-            <div className="px-6 pb-5">
-              <svg viewBox="0 0 900 130" className="h-36 w-full" role="img">
-                <defs>
-                  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--color-sage)" stopOpacity="0.28" />
-                    <stop offset="100%" stopColor="var(--color-sage)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                {[0, 30, 60, 90, 120].map((y) => (
-                  <line
-                    key={y}
-                    x1="0"
-                    y1={y}
-                    x2="900"
-                    y2={y}
-                    stroke="var(--color-border)"
-                    strokeWidth="1"
-                  />
-                ))}
-                <path d={area} fill="url(#fade)" />
-                <path
-                  d={line}
-                  fill="none"
-                  stroke="var(--color-forest-mid)"
-                  strokeWidth="2.25"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <circle
-                  cx={coords[coords.length - 1][0]}
-                  cy={coords[coords.length - 1][1]}
-                  r="4.5"
-                  fill="var(--color-forest)"
-                  stroke="white"
-                  strokeWidth="2"
-                />
-              </svg>
-              <div className="mt-1 flex justify-between text-[11.5px] text-ink-faint">
-                <span>{trend.length} weeks ago</span>
-                <span>This week</span>
-              </div>
+            <div className="px-4 pb-5 pt-1">
+              {weekly.source === "loading" && (
+                <p className="flex items-center gap-2 px-3 py-10 text-[13px] text-ink-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading weekly counts…
+                </p>
+              )}
+              {weekly.source === "unavailable" && (
+                <p className="px-3 py-10 text-[13px] text-warning">
+                  Trend data needs the backend connected. {weekly.error}
+                </p>
+              )}
+              {weekly.source === "api" && series.length > 0 && (
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={series} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
+                    <CartesianGrid stroke={CHART.grid} vertical={false} />
+                    <XAxis
+                      dataKey="week"
+                      tickFormatter={weekLabel}
+                      tick={{ fill: CHART.axis, fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={{ stroke: CHART.grid }}
+                      minTickGap={18}
+                    />
+                    <YAxis
+                      tick={{ fill: CHART.axis, fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={44}
+                    />
+                    <Tooltip
+                      labelFormatter={(v) => `Week of ${weekLabel(String(v))}`}
+                      contentStyle={{
+                        background: CHART.surface,
+                        border: `1px solid ${CHART.grid}`,
+                        borderRadius: 12,
+                        fontSize: 12.5,
+                        color: CHART.ink,
+                        boxShadow: "0 10px 22px -8px rgba(21,45,33,0.18)",
+                      }}
+                      itemStyle={{ color: CHART.inkMuted }}
+                      cursor={{ stroke: CHART.grid, strokeWidth: 1 }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={28}
+                      iconType="plainline"
+                      iconSize={18}
+                      wrapperStyle={{ fontSize: 12, color: CHART.inkMuted, paddingTop: 6 }}
+                    />
+                    {conditions.map((condition, i) => (
+                      <Line
+                        key={condition}
+                        type="monotone"
+                        dataKey={condition}
+                        stroke={SERIES[i % SERIES.length]}
+                        strokeWidth={2.25}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: CHART.surface }}
+                        isAnimationActive={false}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              {weekly.source === "api" && series.length === 0 && (
+                <p className="px-3 py-10 text-[13px] text-ink-muted">
+                  No weekly group cleared the privacy threshold, so there is nothing
+                  to plot. That is suppression working, not missing data.
+                </p>
+              )}
             </div>
           </Card>
 
@@ -184,28 +210,45 @@ export default function AdminPage() {
               subtitle="Combined across all reporting facilities"
             />
             <div className="space-y-3 px-7 pb-7">
-              {casesByCondition.map((c, i) => (
-                <div key={c.label} className="flex items-center gap-4">
-                  <span className="w-28 shrink-0 text-[13px] text-ink-muted">
-                    {c.label}
-                  </span>
-                  <div className="h-8 flex-1 overflow-hidden rounded-lg bg-canvas ring-1 ring-inset ring-border">
-                    <div
-                      className="flex h-8 items-center justify-end rounded-lg pr-3"
-                      style={{
-                        width: `${(c.value / maxCases) * 100}%`,
-                        backgroundColor:
-                          i === 0 ? "var(--color-forest)" : "var(--color-forest-mid)",
-                        opacity: i === 0 ? 1 : 1 - i * 0.13,
-                      }}
-                    >
-                      <span className="nums text-[11.5px] font-semibold text-cream">
-                        {c.value}
-                      </span>
+              {casesByCondition.map((c) => {
+                const pct = (c.value / maxCases) * 100;
+                const heat = heatColor(c.value, maxCases);
+                // The count sits outside the bar once the bar is too short to
+                // hold it. The previous version faded each row by index, which
+                // left the smallest conditions invisible — the same misread
+                // the suppression rule exists to avoid.
+                const inside = pct > 18;
+                return (
+                  <div key={c.label} className="flex items-center gap-4">
+                    <span className="w-28 shrink-0 text-[13px] text-ink-muted">
+                      {c.label}
+                    </span>
+                    <div className="flex h-8 flex-1 items-center overflow-hidden rounded-lg bg-canvas ring-1 ring-inset ring-border">
+                      <div
+                        className="transition-calm flex h-8 items-center justify-end rounded-lg pr-3"
+                        style={{
+                          width: `${Math.max(pct, 1.5)}%`,
+                          backgroundColor: heat.background,
+                        }}
+                      >
+                        {inside && (
+                          <span
+                            className="nums text-[11.5px] font-semibold"
+                            style={{ color: heat.color }}
+                          >
+                            {c.value}
+                          </span>
+                        )}
+                      </div>
+                      {!inside && (
+                        <span className="nums pl-2.5 text-[11.5px] font-semibold text-ink-muted">
+                          {c.value}
+                        </span>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -256,56 +299,74 @@ export default function AdminPage() {
             </div>
           </Card>
 
+          {/* Was a mocked-up assistant with a hardcoded question and answer.
+              Removed: there is no /admin/ask endpoint and no model behind it,
+              and a judge who types into a fake chat box finds that out on
+              stage. The real filters live on the explorer page instead. */}
           <Card>
             <CardHeader
-              eyebrow={
-                <Badge tone="sage">
-                  <Sparkles className="h-3 w-3" />
-                  AI assistant
-                </Badge>
-              }
-              title="Ask about the data"
-              subtitle="Answers come only from the aggregate table"
+              title="Explore the counts"
+              subtitle="Filter the same suppressed aggregates by district and condition"
             />
-            <div className="px-6 pb-5">
-              <div className="rounded-xl bg-canvas px-3.5 py-3">
-                <p className="text-[13px] text-ink-muted">
-                  Why did respiratory cases spike in August?
-                </p>
-              </div>
-              <p className="mt-3 font-serif text-[15px] leading-relaxed text-ink">
-                Respiratory cases rose roughly 40% division-wide in August versus July,
-                concentrated in Wagholi and Hadapsar — matching last year&apos;s seasonal
-                pattern.
+            <div className="px-6 pb-6">
+              <p className="text-[13px] leading-relaxed text-ink-muted">
+                Every figure on this dashboard comes from one view. The explorer
+                lets you slice it without ever widening what this role can read.
               </p>
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-border px-3.5 py-2.5">
-                <MessageCircle className="h-4 w-4 shrink-0 text-ink-faint" />
-                <span className="text-[13px] text-ink-faint">Ask a question…</span>
-              </div>
+              <Link
+                href="/admin/ask"
+                className="transition-calm mt-4 inline-flex items-center gap-2 rounded-xl border border-border px-3.5 py-2.5 text-[13px] font-medium text-ink hover:bg-canvas"
+              >
+                <SlidersHorizontal className="h-4 w-4 text-sage" />
+                Open the aggregate explorer
+              </Link>
             </div>
           </Card>
 
           <Card>
-            <CardHeader title="Reporting facilities" />
-            <ul className="divide-y divide-border border-t border-border">
-              {[
-                "PHC Wagholi",
-                "District Hospital Pune",
-                "Rural PHC Baramati",
-                "Sub-Center Hadapsar",
-              ].map((facility) => (
-                <li
-                  key={facility}
-                  className="flex items-center justify-between px-6 py-3"
-                >
-                  <span className="text-[13.5px] text-ink">{facility}</span>
-                  <span className="flex items-center gap-1.5 text-[11.5px] text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    Reporting
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <CardHeader
+              title="Reporting facilities"
+              subtitle="Activity by week, from the same suppressed view as everything else"
+              divided
+            />
+            {facilities.source === "api" && facilities.data.length > 0 ? (
+              <ul className="divide-y divide-border">
+                {facilities.data.map((f) => {
+                  const weeksAgo = weeksSince(f.lastWeek);
+                  const current = weeksAgo <= 1;
+                  return (
+                    <li key={f.facility} className="px-6 py-3.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[13.5px] text-ink">{f.facility}</span>
+                        <span
+                          className={`flex shrink-0 items-center gap-1.5 text-[11.5px] ${
+                            current ? "text-success" : "text-warning"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              current ? "bg-success" : "bg-warning"
+                            }`}
+                          />
+                          {current ? "Reporting" : `Last ${weeksAgo}w ago`}
+                        </span>
+                      </div>
+                      <p className="nums mt-1 text-[11.5px] text-ink-faint">
+                        {f.caseCount.toLocaleString()} visits · {f.patientCount} patients
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="px-6 py-5 text-[12.5px] text-ink-muted">
+                {facilities.source === "loading"
+                  ? "Loading facility activity…"
+                  : facilities.source === "unavailable"
+                    ? "Facility activity needs the backend connected."
+                    : "No facility has recorded enough visits to clear the threshold."}
+              </p>
+            )}
           </Card>
         </div>
       </div>

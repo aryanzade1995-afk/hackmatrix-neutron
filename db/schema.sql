@@ -90,6 +90,29 @@ JOIN patients p ON p.id = v.patient_id
 GROUP BY p.district, v.diagnosis
 HAVING COUNT(*) >= 5;
 
+-- Which facilities are actually reporting, and when they last did.
+--
+-- Carries the same k-anonymity threshold as the other views, and the same
+-- reasoning: a facility that has recorded fewer than five visits is not shown
+-- at all, because "this clinic saw two people" is close enough to naming them
+-- in a small catchment. Activity is reported by week rather than by exact
+-- date for the same reason.
+-- Grouped by facility alone, not facility x district: a clinic serves patients
+-- from several districts, and splitting it would report the same clinic four
+-- times with partial counts.
+-- Dropped rather than replaced: CREATE OR REPLACE cannot change a view's
+-- column list, so a re-run after editing this definition would fail.
+DROP VIEW IF EXISTS facility_activity;
+CREATE VIEW facility_activity AS
+SELECT
+  v.facility,
+  COUNT(*)                                    AS case_count,
+  COUNT(DISTINCT v.patient_id)                AS patient_count,
+  MAX(date_trunc('week', v.visit_date))::date AS last_week
+FROM visits v
+GROUP BY v.facility
+HAVING COUNT(*) >= 5;
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------
@@ -138,7 +161,7 @@ GRANT SELECT, INSERT ON patients, visits TO clinician_role;
 
 REVOKE ALL ON patients, visits FROM admin_role;
 GRANT USAGE ON SCHEMA public TO admin_role;
-GRANT SELECT ON district_aggregates, condition_totals TO admin_role;
+GRANT SELECT ON district_aggregates, condition_totals, facility_activity TO admin_role;
 
 -- Stop either role from acquiring table rights on anything added later.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM admin_role;

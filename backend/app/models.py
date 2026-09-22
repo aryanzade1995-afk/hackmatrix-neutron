@@ -181,6 +181,15 @@ class AccessLogEntry(BaseModel):
     createdAt: str
 
 
+class FacilityActivity(BaseModel):
+    """Aggregate only — a facility below the threshold is not returned at all."""
+
+    facility: str
+    caseCount: int
+    patientCount: int
+    lastWeek: Date
+
+
 class TrendSignal(BaseModel):
     """A (district, diagnosis) pair whose latest week sits well above its own
     trailing average. Arithmetic over already-suppressed aggregates — no model,

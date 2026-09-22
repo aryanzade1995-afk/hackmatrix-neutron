@@ -872,7 +872,7 @@ export const clinicianTabs = [
 export const adminTabs = [
   { label: "Overview", href: "/admin" },
   { label: "Trends", href: "/admin/trends" },
-  { label: "Ask", href: "/admin/ask" },
+  { label: "Explore", href: "/admin/ask" },
 ];
 
 export const conditionsByDistrict = [

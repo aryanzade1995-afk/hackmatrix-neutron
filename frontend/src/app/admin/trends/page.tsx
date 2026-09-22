@@ -7,19 +7,58 @@ import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
 import { adminTabs } from "@/lib/demo-data";
 import { distinctFrom, useSignals, useTrends, type AggregateRow } from "@/lib/adminData";
+import { CHART, HEAT_LEGEND, heatColor } from "@/components/chartTheme";
 import { Activity, EyeOff, Loader2, TrendingUp, TriangleAlert } from "lucide-react";
+
+/** Matches the backend's default `baseline_weeks` on /admin/signals. */
+const baselineWeeks = 8;
 
 /** Pivots the flat aggregate rows into a district × diagnosis grid. */
 function pivot(rows: AggregateRow[]) {
   const { districts, diagnoses } = distinctFrom(rows);
   const lookup = new Map(rows.map((r) => [`${r.district}|${r.diagnosis}`, r.caseCount]));
-  return { districts, diagnoses, lookup };
+  const maxCell = Math.max(1, ...rows.map((r) => r.caseCount));
+  return { districts, diagnoses, lookup, maxCell };
+}
+
+/** One bar of the baseline-vs-current pair on a signal. */
+function SignalBar({
+  label,
+  value,
+  max,
+  tone,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  tone: "muted" | "watch" | "alert";
+}) {
+  const fill =
+    tone === "alert" ? CHART.danger : tone === "watch" ? CHART.warning : CHART.axis;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-32 shrink-0 text-[11.5px] text-ink-muted">{label}</span>
+      <div className="h-4 flex-1 overflow-hidden rounded bg-white/70">
+        <div
+          className="transition-calm h-4 rounded"
+          style={{
+            width: `${Math.max(2, (value / Math.max(max, 1)) * 100)}%`,
+            background: fill,
+            opacity: tone === "muted" ? 0.45 : 1,
+          }}
+        />
+      </div>
+      <span className="nums w-10 shrink-0 text-right text-[12px] font-semibold text-ink">
+        {value}
+      </span>
+    </div>
+  );
 }
 
 export default function AdminTrendsPage() {
   const trends = useTrends();
   const signals = useSignals();
-  const { districts, diagnoses, lookup } = pivot(trends.data);
+  const { districts, diagnoses, lookup, maxCell } = pivot(trends.data);
 
   return (
     <AppShell role="admin" userName="K. Iyer" tabs={adminTabs}>
@@ -90,8 +129,7 @@ export default function AdminTrendsPage() {
                     {s.diagnosis} in {s.district}
                   </span>
                   <span className="nums text-[13px] text-ink-muted">
-                    {s.ratio}× its recent average — {s.currentCount} this week vs ~
-                    {s.baselineAvg}
+                    {s.ratio}× its recent average
                   </span>
                   <Badge
                     tone={s.severity === "alert" ? "danger" : "warning"}
@@ -99,6 +137,23 @@ export default function AdminTrendsPage() {
                   >
                     {s.severity}
                   </Badge>
+
+                  {/* The numbers are already computed; showing them as two
+                      bars makes the size of the jump readable at a glance. */}
+                  <div className="mt-1 w-full space-y-1.5">
+                    <SignalBar
+                      label={`${baselineWeeks}-week average`}
+                      value={s.baselineAvg}
+                      max={Math.max(s.currentCount, s.baselineAvg)}
+                      tone="muted"
+                    />
+                    <SignalBar
+                      label="This week"
+                      value={s.currentCount}
+                      max={Math.max(s.currentCount, s.baselineAvg)}
+                      tone={s.severity === "alert" ? "alert" : "watch"}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>
@@ -132,7 +187,8 @@ export default function AdminTrendsPage() {
         )}
 
         {trends.source === "api" && (
-          <div className="overflow-x-auto">
+          <>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
@@ -155,18 +211,36 @@ export default function AdminTrendsPage() {
                     <td className="px-5 py-3 text-ink">{district}</td>
                     {diagnoses.map((d) => {
                       const value = lookup.get(`${district}|${d}`);
-                      return (
-                        <td key={d} className="nums px-5 py-3 text-right">
-                          {value === undefined ? (
-                            // Absent from the view means it never cleared the
-                            // threshold — there is no number here to hide.
-                            <span className="inline-flex items-center gap-1 text-xs text-warning">
+
+                      // Absent from the view means it never cleared the
+                      // threshold. Suppressed cells deliberately stay OFF the
+                      // colour ramp — a pale green would read as "a small
+                      // number", which is exactly the inference the threshold
+                      // exists to prevent.
+                      if (value === undefined) {
+                        return (
+                          <td key={d} className="p-1">
+                            <div
+                              className="flex h-11 items-center justify-center gap-1 rounded-lg bg-canvas text-[11px] text-ink-faint ring-1 ring-inset ring-border"
+                              title={`${d} in ${district}: hidden — fewer than 5 cases`}
+                            >
                               <EyeOff className="h-3 w-3" />
                               hidden
-                            </span>
-                          ) : (
-                            <span className="text-ink-muted">{value}</span>
-                          )}
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      const heat = heatColor(value, maxCell);
+                      return (
+                        <td key={d} className="p-1">
+                          <div
+                            className="nums flex h-11 items-center justify-center rounded-lg text-[13px] font-medium tabular-nums"
+                            style={{ background: heat.background, color: heat.color }}
+                            title={`${d} in ${district}: ${value} cases`}
+                          >
+                            {value}
+                          </div>
                         </td>
                       );
                     })}
@@ -174,7 +248,23 @@ export default function AdminTrendsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border px-6 py-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[11.5px] text-ink-faint">Fewer</span>
+                <div className="flex overflow-hidden rounded">
+                  {HEAT_LEGEND.map((c) => (
+                    <span key={c} className="h-3 w-6" style={{ background: c }} />
+                  ))}
+                </div>
+                <span className="text-[11.5px] text-ink-faint">More cases</span>
+              </div>
+              <span className="flex items-center gap-2 text-[11.5px] text-ink-faint">
+                <span className="flex h-3 w-6 items-center justify-center rounded bg-canvas ring-1 ring-inset ring-border" />
+                Hidden — deliberately off the scale, so it never reads as a low count
+              </span>
+            </div>
+          </>
         )}
       </Card>
 

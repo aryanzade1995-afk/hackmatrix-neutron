@@ -20,7 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from ..db import admin_engine
-from ..models import AggregateRow, TrendSignal
+from ..models import AggregateRow, FacilityActivity, TrendSignal
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -74,6 +74,32 @@ def trends(limit: int = Query(default=100, le=1000)):
         ).all()
     return [
         AggregateRow(district=r.district, diagnosis=r.diagnosis, caseCount=r.case_count)
+        for r in rows
+    ]
+
+
+@router.get("/facilities", response_model=list[FacilityActivity])
+def facilities():
+    """Which facilities are reporting, and when they last did.
+
+    Reads `facility_activity`, which carries the same k-anonymity threshold as
+    every other view: a facility with fewer than five recorded visits is not
+    returned, and activity is reported by week rather than exact date.
+    """
+    with admin_engine().connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT facility, case_count, patient_count, last_week "
+                "FROM facility_activity ORDER BY case_count DESC"
+            )
+        ).all()
+    return [
+        FacilityActivity(
+            facility=r.facility,
+            caseCount=r.case_count,
+            patientCount=r.patient_count,
+            lastWeek=r.last_week,
+        )
         for r in rows
     ]
 
