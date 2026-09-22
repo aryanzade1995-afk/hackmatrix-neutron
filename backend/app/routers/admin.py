@@ -13,7 +13,7 @@ The /admin/prove endpoint below demonstrates this on demand.
 from __future__ import annotations
 
 from collections import defaultdict
-from statistics import mean
+from statistics import mean, stdev
 
 from fastapi import APIRouter, Query
 from sqlalchemy import text
@@ -155,7 +155,10 @@ def signals(
         if len(baseline_points) < min_baseline_weeks:
             continue
 
-        baseline_avg = mean(c for _, c in baseline_points)
+        baseline_counts = [c for _, c in baseline_points]
+        baseline_avg = mean(baseline_counts)
+        # stdev needs two points; a one-week baseline has no spread to speak of.
+        baseline_sd = stdev(baseline_counts) if len(baseline_counts) > 1 else 0.0
         if baseline_avg <= 0 or current_count < min_current_count:
             continue
 
@@ -170,6 +173,12 @@ def signals(
                 week=current_week,
                 currentCount=current_count,
                 baselineAvg=round(baseline_avg, 1),
+                baselineSd=round(baseline_sd, 2),
+                zScore=round(
+                    (current_count - baseline_avg) / baseline_sd if baseline_sd > 0 else 0.0,
+                    2,
+                ),
+                baselineWeeks=len(baseline_counts),
                 ratio=round(ratio, 2),
                 severity="alert" if ratio >= 3 else "watch",
             )

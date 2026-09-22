@@ -216,6 +216,15 @@ class TrendSignal(BaseModel):
     week: Date
     currentCount: int
     baselineAvg: float
+    #: Sample standard deviation of the baseline weeks.
+    baselineSd: float
+    #: How many standard deviations the current week sits above the baseline.
+    #: A ratio alone cannot distinguish a jump in a steady series from the
+    #: same jump in one that swings this much every week.
+    zScore: float
+    #: How many weeks the baseline was actually computed from — fewer weeks
+    #: means a less trustworthy signal, and the interface says so.
+    baselineWeeks: int
     ratio: float
     severity: Literal["watch", "alert"]
 

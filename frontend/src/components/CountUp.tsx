@@ -47,8 +47,16 @@ export function useCountUp(
     };
 
     frame.current = requestAnimationFrame(step);
+
+    // Backstop. requestAnimationFrame does not fire in a tab that is not
+    // compositing — backgrounded, occluded, or in a headless capture — and
+    // without this the tile would sit at zero indefinitely, which reads as a
+    // real count of zero rather than as an animation that never started.
+    const settle = setTimeout(() => setDisplay(value), durationMs + 120);
+
     return () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
+      clearTimeout(settle);
     };
   }, [value, trigger, durationMs]);
 

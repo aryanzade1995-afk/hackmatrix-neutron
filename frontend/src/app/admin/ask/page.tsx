@@ -15,14 +15,19 @@ import {
 } from "@/lib/adminData";
 import { CHART, SERIES, heatColor, weekLabel } from "@/components/chartTheme";
 import {
+  Area,
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { StatStrip, ChangeChip } from "@/components/StatStrip";
+import { movingAverage, summarise } from "@/lib/stats";
 import { Info, Loader2, Lock } from "lucide-react";
 
 /**
@@ -48,6 +53,31 @@ export default function AdminAskPage() {
   const { districts, diagnoses } = distinctFrom(trends.data);
 
   const series = useMemo(() => weeklyTotals(weekly.data), [weekly.data]);
+
+  /**
+   * The chart plots four things over the same weeks: the counts themselves,
+   * a 4-week trailing average, the period mean, and a one-standard-deviation
+   * band around that mean. The band is what turns "that bar looks tall" into
+   * "that bar is outside normal variation for this series".
+   */
+  const MA_WINDOW = 4;
+  const stats = useMemo(() => summarise(series.map((r) => r.cases)), [series]);
+  const plot = useMemo(() => {
+    const counts = series.map((r) => r.cases);
+    const ma = movingAverage(counts, MA_WINDOW);
+    return series.map((row, i) => ({
+      ...row,
+      normal: i === stats.peakIndex ? null : row.cases,
+      peak: i === stats.peakIndex ? row.cases : null,
+      trend: ma[i],
+      // Recharts draws a band as a stacked pair: an invisible floor, then the
+      // visible height on top of it. Clamped at zero because a count cannot be
+      // negative and a band dipping below the axis implies one could be.
+      bandFloor: Math.max(0, stats.mean - stats.sd),
+      bandHeight:
+        Math.max(0, stats.mean + stats.sd) - Math.max(0, stats.mean - stats.sd),
+    }));
+  }, [series, stats]);
 
   // A full page of rows means the endpoint may have cut the series short, and
   // saying "877 cases" over a truncated read would be a wrong number on a
@@ -156,8 +186,25 @@ export default function AdminAskPage() {
             )}
 
             {weekly.source === "api" && series.length > 0 && (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={series} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart
+                  data={plot}
+                  margin={{ top: 16, right: 16, bottom: 4, left: -8 }}
+                >
+                  <defs>
+                    {/* A vertical fade rather than a flat fill: the bars are
+                        the densest ink on the page and a solid block of forest
+                        green at this size reads as heavy. */}
+                    <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={SERIES[1]} stopOpacity={0.72} />
+                    </linearGradient>
+                    <linearGradient id="peakFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={CHART.warning} stopOpacity={0.65} />
+                    </linearGradient>
+                  </defs>
+
                   <CartesianGrid stroke={CHART.grid} vertical={false} />
                   <XAxis
                     dataKey="week"
@@ -175,7 +222,15 @@ export default function AdminAskPage() {
                   />
                   <Tooltip
                     labelFormatter={(v) => `Week of ${weekLabel(String(v))}`}
-                    formatter={(v) => [String(v), "cases"] as [string, string]}
+                    formatter={(value, name) => {
+                      if (name === "bandFloor" || name === "bandHeight") return [];
+                      if (value === null || value === undefined) return [];
+                      if (name === "trend")
+                        return value === null
+                          ? []
+                          : [Number(value).toFixed(1), `${MA_WINDOW}-week average`];
+                      return [String(value), name === "peak" ? "cases (peak)" : "cases"];
+                    }}
                     contentStyle={{
                       background: CHART.surface,
                       border: `1px solid ${CHART.grid}`,
@@ -186,17 +241,159 @@ export default function AdminAskPage() {
                     }}
                     cursor={{ fill: CHART.canvas }}
                   />
+
+                  {/* Normal range: mean plus or minus one standard deviation. */}
+                  <Area
+                    dataKey="bandFloor"
+                    stackId="band"
+                    stroke="none"
+                    fill="transparent"
+                    isAnimationActive={false}
+                    activeDot={false}
+                  />
+                  <Area
+                    dataKey="bandHeight"
+                    stackId="band"
+                    stroke="none"
+                    fill={SERIES[2]}
+                    fillOpacity={0.14}
+                    isAnimationActive={false}
+                    activeDot={false}
+                  />
+
+                  <ReferenceLine
+                    y={stats.mean}
+                    stroke={CHART.axis}
+                    strokeDasharray="3 4"
+                    label={{
+                      value: `mean ${stats.mean.toFixed(1)}`,
+                      position: "insideTopLeft",
+                      fill: CHART.axis,
+                      fontSize: 10.5,
+                      offset: 8,
+                    }}
+                  />
+
+                  {/* Two series sharing one x slot. Recharts 3.x renders a
+                      <Cell> inside <Bar> as an empty group, so per-bar colour
+                      has to come from separate series — the busiest week is
+                      marked rather than left for the eye to find by comparing
+                      heights. */}
                   <Bar
-                    dataKey="cases"
+                    dataKey="normal"
+                    stackId="count"
+                    fill="url(#barFill)"
                     radius={[4, 4, 0, 0]}
-                    fill={SERIES[0]}
                     maxBarSize={34}
                     isAnimationActive={false}
                   />
-                </BarChart>
+                  <Bar
+                    dataKey="peak"
+                    stackId="count"
+                    fill="url(#peakFill)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={34}
+                    isAnimationActive={false}
+                  />
+
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    stroke={CHART.ink}
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    dot={false}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             )}
           </div>
+
+          {weekly.source === "api" && series.length > 0 && (
+            <>
+              {/* Every overlay gets named. An unexplained band on a chart
+                  about privacy is the last thing this page needs. */}
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-7 pb-4 text-[11px] text-ink-faint">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-4 rounded-sm"
+                    style={{ background: SERIES[0] }}
+                  />
+                  weekly cases
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-4 rounded-sm"
+                    style={{ background: CHART.warning }}
+                  />
+                  busiest week
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-px w-5 border-t-2 border-dashed border-ink" />
+                  {MA_WINDOW}-week trailing average
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-4 rounded-sm"
+                    style={{ background: SERIES[2], opacity: 0.3 }}
+                  />
+                  mean ± 1 SD
+                </span>
+              </div>
+
+              <StatStrip
+                stats={[
+                  {
+                    label: "Total",
+                    value: stats.total.toLocaleString(),
+                    note: `over ${series.length} weeks`,
+                  },
+                  {
+                    label: "Weekly mean",
+                    value: stats.mean.toFixed(1),
+                    note: `median ${stats.median.toFixed(1)}`,
+                  },
+                  {
+                    label: "Std deviation",
+                    value: stats.sd.toFixed(1),
+                    note: stats.mean > 0
+                      ? `${((stats.sd / stats.mean) * 100).toFixed(0)}% of mean`
+                      : undefined,
+                  },
+                  {
+                    label: "Peak week",
+                    value: String(stats.peak),
+                    note:
+                      stats.peakIndex >= 0 && series[stats.peakIndex]
+                        ? weekLabel(series[stats.peakIndex].week)
+                        : undefined,
+                  },
+                ]}
+              />
+
+              <div className="flex flex-wrap items-end gap-x-8 gap-y-3 px-7 pb-6">
+                <div>
+                  <p className="text-[10.5px] uppercase tracking-[0.07em] text-ink-faint">
+                    Change
+                  </p>
+                  <p className="mt-1">
+                    <ChangeChip pct={stats.changePct} />
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-ink-faint">
+                    last third vs first third
+                  </p>
+                </div>
+                <p className="max-w-md text-[11.5px] leading-relaxed text-ink-faint">
+                  These figures are computed over the weeks that cleared the
+                  threshold. Suppressed weeks are absent rather than zero, so the
+                  mean sits slightly high — the honest direction, since assuming
+                  zero would invent counts nobody measured.
+                </p>
+              </div>
+            </>
+          )}
         </Card>
 
         <div className="space-y-6">

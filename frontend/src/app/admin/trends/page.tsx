@@ -12,9 +12,6 @@ import { Activity, EyeOff, Loader2, TrendingUp, TriangleAlert } from "lucide-rea
 import { DistrictPulse } from "@/components/DistrictPulse";
 import { ThresholdCurveCard } from "@/components/ThresholdCurve";
 
-/** Matches the backend's default `baseline_weeks` on /admin/signals. */
-const baselineWeeks = 8;
-
 /** Pivots the flat aggregate rows into a district × diagnosis grid. */
 function pivot(rows: AggregateRow[]) {
   const { districts, diagnoses } = distinctFrom(rows);
@@ -133,6 +130,17 @@ export default function AdminTrendsPage() {
                   <span className="nums text-[13px] text-ink-muted">
                     {s.ratio}× its recent average
                   </span>
+                  {/* The ratio alone cannot tell a jump in a steady series
+                      from the same jump in one that swings this much every
+                      week. The z-score can. */}
+                  {s.baselineSd > 0 && (
+                    <span
+                      className="nums rounded-md bg-white/70 px-2 py-0.5 text-[11.5px] text-ink-muted"
+                      title={`Baseline ${s.baselineAvg} ± ${s.baselineSd} over ${s.baselineWeeks} weeks`}
+                    >
+                      z = {s.zScore.toFixed(1)}
+                    </span>
+                  )}
                   <Badge
                     tone={s.severity === "alert" ? "danger" : "warning"}
                     className="ml-auto"
@@ -143,8 +151,25 @@ export default function AdminTrendsPage() {
                   {/* The numbers are already computed; showing them as two
                       bars makes the size of the jump readable at a glance. */}
                   <div className="mt-1 w-full space-y-1.5">
+                    <p className="text-[11.5px] leading-relaxed text-ink-muted">
+                      {s.currentCount} cases this week against a baseline of{" "}
+                      <span className="nums">{s.baselineAvg}</span>
+                      {s.baselineSd > 0 && (
+                        <>
+                          {" "}± <span className="nums">{s.baselineSd}</span>
+                        </>
+                      )}{" "}
+                      over {s.baselineWeeks} weeks
+                      {s.baselineSd > 0 && (
+                        <>
+                          {" "}— <span className="nums">{s.zScore.toFixed(1)}</span>{" "}
+                          standard deviations above it
+                        </>
+                      )}
+                      .
+                    </p>
                     <SignalBar
-                      label={`${baselineWeeks}-week average`}
+                      label={`${s.baselineWeeks}-week average`}
                       value={s.baselineAvg}
                       max={Math.max(s.currentCount, s.baselineAvg)}
                       tone="muted"

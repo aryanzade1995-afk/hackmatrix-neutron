@@ -31,6 +31,9 @@ export type TrendSignal = {
   week: string;
   currentCount: number;
   baselineAvg: number;
+  baselineSd: number;
+  zScore: number;
+  baselineWeeks: number;
   ratio: number;
   severity: "watch" | "alert";
 };

@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
-  LineChart,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -11,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { StatStrip } from "@/components/StatStrip";
 import { Loader2, Scale } from "lucide-react";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader } from "@/components/Card";
@@ -41,6 +44,16 @@ export function ThresholdCurveCard() {
     k1 && chosen && k1.casesRetained > 0
       ? (chosen.casesRetained / k1.casesRetained) * 100
       : null;
+
+  // Both series carry a retention percentage so the two axes can be read
+  // against each other: at every k, what fraction of groups and of cases
+  // survives. This is the actual shape of the trade.
+  const plot = points.map((point) => ({
+    ...point,
+    groupsPct: k1 && k1.groups > 0 ? (point.groups / k1.groups) * 100 : 0,
+    casesPct:
+      k1 && k1.casesRetained > 0 ? (point.casesRetained / k1.casesRetained) * 100 : 0,
+  }));
 
   return (
     <Card className="mb-6">
@@ -75,11 +88,18 @@ export function ThresholdCurveCard() {
         )}
 
         {curve.source === "api" && curve.data && (
-          <ResponsiveContainer width="100%" height={210}>
-            <LineChart
-              data={points}
-              margin={{ top: 12, right: 20, bottom: 4, left: -12 }}
+          <ResponsiveContainer width="100%" height={250}>
+            <ComposedChart
+              data={plot}
+              margin={{ top: 16, right: 20, bottom: 4, left: -8 }}
             >
+              <defs>
+                <linearGradient id="casesKept" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={SERIES[2]} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={SERIES[2]} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+
               <CartesianGrid stroke={CHART.grid} vertical={false} />
               <XAxis
                 dataKey="k"
@@ -91,19 +111,31 @@ export function ThresholdCurveCard() {
                 tickLine={false}
                 axisLine={{ stroke: CHART.grid }}
               />
+              {/* Both series are percentages of their k=1 value, so one axis
+                  serves both and the curves are directly comparable. */}
               <YAxis
+                domain={[0, 105]}
+                ticks={[0, 25, 50, 75, 100]}
+                tickFormatter={(v) => `${v}%`}
                 tick={{ fill: CHART.axis, fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
-                width={44}
-                label={undefined}
+                width={46}
               />
               <Tooltip
                 labelFormatter={(v) => `Threshold k = ${v}`}
-                formatter={(value, name) => [
-                  String(value),
-                  name === "groups" ? "groups visible" : "cases retained",
-                ]}
+                formatter={(value, name, item) => {
+                  const row = item?.payload as (typeof plot)[number] | undefined;
+                  if (name === "casesPct")
+                    return [
+                      `${Number(value).toFixed(1)}%  (${row?.casesRetained.toLocaleString()} cases)`,
+                      "cases retained",
+                    ];
+                  return [
+                    `${Number(value).toFixed(1)}%  (${row?.groups} groups)`,
+                    "groups visible",
+                  ];
+                }}
                 contentStyle={{
                   background: CHART.surface,
                   border: `1px solid ${CHART.grid}`,
@@ -114,9 +146,17 @@ export function ThresholdCurveCard() {
                 }}
                 cursor={{ stroke: CHART.grid, strokeWidth: 1 }}
               />
+              <Legend
+                verticalAlign="bottom"
+                height={26}
+                iconType="plainline"
+                iconSize={18}
+                wrapperStyle={{ fontSize: 11.5, color: CHART.inkMuted }}
+                formatter={(name) =>
+                  name === "casesPct" ? "cases retained" : "groups visible"
+                }
+              />
 
-              {/* The chosen threshold, marked on the chart rather than only
-                  described underneath it. */}
               <ReferenceLine
                 x={curve.data.productionK}
                 stroke={CHART.warning}
@@ -128,28 +168,69 @@ export function ThresholdCurveCard() {
                   fontSize: 11,
                 }}
               />
+
+              {/* Cases barely move; groups fall away sharply. The gap between
+                  the two curves is what the threshold actually buys. */}
+              <Area
+                type="stepAfter"
+                dataKey="casesPct"
+                stroke={SERIES[2]}
+                strokeWidth={2}
+                fill="url(#casesKept)"
+                isAnimationActive={false}
+              />
               <Line
                 type="stepAfter"
-                dataKey="groups"
+                dataKey="groupsPct"
                 stroke={SERIES[0]}
                 strokeWidth={2.25}
                 dot={{ r: 3, fill: SERIES[0], strokeWidth: 0 }}
                 isAnimationActive={false}
               />
-              {chosen && (
+              {chosen && k1 && k1.groups > 0 && (
                 <ReferenceDot
                   x={chosen.k}
-                  y={chosen.groups}
+                  y={(chosen.groups / k1.groups) * 100}
                   r={5}
                   fill={CHART.warning}
                   stroke={CHART.surface}
                   strokeWidth={2}
                 />
               )}
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
+
+      {curve.source === "api" && curve.data && chosen && k1 && (
+        <StatStrip
+          stats={[
+            {
+              label: "Groups at k=1",
+              value: String(k1.groups),
+              note: "no threshold at all",
+            },
+            {
+              label: `Groups at k=${curve.data.productionK}`,
+              value: String(chosen.groups),
+              note: `${((chosen.groups / k1.groups) * 100).toFixed(0)}% retained`,
+            },
+            {
+              label: "Cases retained",
+              value: `${casesKept?.toFixed(1)}%`,
+              note: `${chosen.casesRetained.toLocaleString()} of ${k1.casesRetained.toLocaleString()}`,
+            },
+            {
+              label: "Cost per group hidden",
+              value:
+                groupsLost && groupsLost > 0
+                  ? ((k1.casesRetained - chosen.casesRetained) / groupsLost).toFixed(1)
+                  : "—",
+              note: "cases, on average",
+            },
+          ]}
+        />
+      )}
 
       {curve.source === "api" && curve.data && (
         <div className="border-t border-border px-7 py-5">

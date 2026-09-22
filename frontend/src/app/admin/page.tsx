@@ -18,15 +18,18 @@ import {
 } from "@/lib/adminData";
 import { CHART, SERIES, heatColor, weekLabel } from "@/components/chartTheme";
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { summarise, zScore } from "@/lib/stats";
 import {
   ArrowUpRight,
   EyeOff,
@@ -36,6 +39,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { CountUp, useAgeLabel } from "@/components/CountUp";
+import { ChangeChip, StatStrip } from "@/components/StatStrip";
 import { ProvePanel } from "@/components/ProvePanel";
 
 /** Totals per condition, summed across districts. */
@@ -64,6 +68,23 @@ export default function AdminPage() {
   const casesByCondition = byCondition(trends.data);
   const maxCases = Math.max(1, ...casesByCondition.map((c) => c.value));
   const { conditions, series } = weeklyByCondition(weekly.data, 4);
+
+  /**
+   * The leading condition gets an area fill and its outlier weeks marked.
+   *
+   * "Outlier" here means two standard deviations from that condition's own
+   * mean — its own history, not a division-wide average, because a condition
+   * running at 40 cases a week and one running at 4 are not comparable on a
+   * shared scale.
+   */
+  const lead = conditions[0];
+  const leadValues = lead ? series.map((row) => Number(row[lead] ?? 0)) : [];
+  const leadStats = summarise(leadValues);
+  const outliers = lead
+    ? series
+        .map((row, i) => ({ row, i, z: zScore(leadValues[i], leadValues) }))
+        .filter((d) => Math.abs(d.z) >= 2)
+    : [];
 
   const { districts, diagnoses } = distinctFrom(trends.data);
   const totalCases = trends.data.reduce((sum, r) => sum + r.caseCount, 0);
@@ -187,8 +208,18 @@ export default function AdminPage() {
                 </p>
               )}
               {weekly.source === "api" && series.length > 0 && (
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={series} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
+                <ResponsiveContainer width="100%" height={272}>
+                  <ComposedChart
+                    data={series}
+                    margin={{ top: 12, right: 18, bottom: 4, left: -8 }}
+                  >
+                    <defs>
+                      <linearGradient id="leadArea" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.22} />
+                        <stop offset="100%" stopColor={SERIES[0]} stopOpacity={0.01} />
+                      </linearGradient>
+                    </defs>
+
                     <CartesianGrid stroke={CHART.grid} vertical={false} />
                     <XAxis
                       dataKey="week"
@@ -224,6 +255,21 @@ export default function AdminPage() {
                       iconSize={18}
                       wrapperStyle={{ fontSize: 12, color: CHART.inkMuted, paddingTop: 6 }}
                     />
+
+                    {/* Fill under the busiest condition only. Four filled
+                        areas would occlude each other into mud. */}
+                    {lead && (
+                      <Area
+                        dataKey={lead}
+                        stroke="none"
+                        fill="url(#leadArea)"
+                        legendType="none"
+                        tooltipType="none"
+                        isAnimationActive={false}
+                        activeDot={false}
+                      />
+                    )}
+
                     {conditions.map((condition, i) => (
                       <Line
                         key={condition}
@@ -236,7 +282,21 @@ export default function AdminPage() {
                         isAnimationActive={false}
                       />
                     ))}
-                  </LineChart>
+
+                    {/* Weeks where the lead condition sat two standard
+                        deviations from its own mean. */}
+                    {outliers.map((o) => (
+                      <ReferenceDot
+                        key={String(o.row.week)}
+                        x={String(o.row.week)}
+                        y={leadValues[o.i]}
+                        r={5}
+                        fill={CHART.danger}
+                        stroke={CHART.surface}
+                        strokeWidth={2}
+                      />
+                    ))}
+                  </ComposedChart>
                 </ResponsiveContainer>
               )}
               {weekly.source === "api" && series.length === 0 && (
@@ -246,6 +306,66 @@ export default function AdminPage() {
                 </p>
               )}
             </div>
+
+            {weekly.source === "api" && series.length > 0 && lead && (
+              <>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-7 pb-3 text-[11px] text-ink-faint">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: CHART.danger }}
+                    />
+                    weeks more than 2 SD from {lead}&apos;s own mean
+                  </span>
+                </div>
+
+                <StatStrip
+                  stats={[
+                    {
+                      label: "Busiest",
+                      value: lead,
+                      note: `${leadStats.total.toLocaleString()} cases`,
+                    },
+                    {
+                      label: "Weekly mean",
+                      value: leadStats.mean.toFixed(1),
+                      note: `± ${leadStats.sd.toFixed(1)} SD`,
+                    },
+                    {
+                      label: "Peak",
+                      value: String(leadStats.peak),
+                      note:
+                        leadStats.peakIndex >= 0 && series[leadStats.peakIndex]
+                          ? weekLabel(String(series[leadStats.peakIndex].week))
+                          : undefined,
+                    },
+                    {
+                      label: "Direction",
+                      value:
+                        Math.abs(leadStats.slope) < 0.25
+                          ? "flat"
+                          : leadStats.slope > 0
+                            ? "rising"
+                            : "falling",
+                      note: `${leadStats.slope > 0 ? "+" : ""}${leadStats.slope.toFixed(2)}/week`,
+                    },
+                  ]}
+                />
+
+                <div className="px-7 pb-6 pt-1">
+                  <p className="text-[10.5px] uppercase tracking-[0.07em] text-ink-faint">
+                    Change
+                  </p>
+                  <p className="mt-1">
+                    <ChangeChip pct={leadStats.changePct} />
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-ink-faint">
+                    last third vs first third · slope is a fit over observed weeks,
+                    not a forecast
+                  </p>
+                </div>
+              </>
+            )}
           </Card>
 
           <Card>
