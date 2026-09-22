@@ -256,3 +256,30 @@ export function useThresholdCurve() {
 
   return { data, source, error };
 }
+
+/**
+ * Weekly frames for the heatmap time-lapse.
+ *
+ * One frame per week, each holding that week's district|diagnosis counts.
+ * `max` is computed across *every* frame rather than per frame, so a cell's
+ * colour means the same thing in week 1 as in week 13 — a per-frame scale
+ * would renormalise on every step and make a quiet week look identical to a
+ * busy one.
+ */
+export function weeklyFrames(rows: AggregateRow[]) {
+  const byWeek = new Map<string, Map<string, number>>();
+  let max = 1;
+
+  for (const r of rows) {
+    if (!r.week) continue;
+    const frame = byWeek.get(r.week) ?? new Map<string, number>();
+    const key = `${r.district}|${r.diagnosis}`;
+    const next = (frame.get(key) ?? 0) + r.caseCount;
+    frame.set(key, next);
+    byWeek.set(r.week, frame);
+    if (next > max) max = next;
+  }
+
+  const weeks = [...byWeek.keys()].sort((a, b) => a.localeCompare(b));
+  return { weeks, frames: byWeek, max };
+}

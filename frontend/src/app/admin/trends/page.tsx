@@ -6,9 +6,25 @@ import { Card, CardHeader, PageTitle, SectionLabel } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
 import { adminTabs } from "@/lib/demo-data";
-import { distinctFrom, useSignals, useTrends, type AggregateRow } from "@/lib/adminData";
-import { CHART, HEAT_LEGEND, heatColor } from "@/components/chartTheme";
-import { Activity, EyeOff, Loader2, TrendingUp, TriangleAlert } from "lucide-react";
+import {
+  distinctFrom,
+  useAggregates,
+  useSignals,
+  useTrends,
+  weeklyFrames,
+  type AggregateRow,
+} from "@/lib/adminData";
+import { CHART, HEAT_LEGEND, heatColor, weekLabel } from "@/components/chartTheme";
+import {
+  Activity,
+  EyeOff,
+  Loader2,
+  Play,
+  Square,
+  TrendingUp,
+  TriangleAlert,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DistrictPulse } from "@/components/DistrictPulse";
 import { ThresholdCurveCard } from "@/components/ThresholdCurve";
 import { MarbleJar } from "@/components/MarbleJar";
@@ -55,10 +71,62 @@ function SignalBar({
   );
 }
 
+/** How long each week holds on screen during a replay. */
+const FRAME_MS = 260;
+
 export default function AdminTrendsPage() {
   const trends = useTrends();
   const signals = useSignals();
+  const weekly = useAggregates();
   const { districts, diagnoses, lookup, maxCell } = pivot(trends.data);
+
+  // ---------------------------------------------------------------- replay
+  const { weeks, frames, max: frameMax } = useMemo(
+    () => weeklyFrames(weekly.data),
+    [weekly.data],
+  );
+  const [frame, setFrame] = useState<number | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const stopReplay = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setFrame(null);
+  };
+  useEffect(() => stopReplay, []);
+
+  const startReplay = () => {
+    stopReplay();
+    if (weeks.length === 0) return;
+
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      // Stepping through thirteen frames is the thing someone asking for
+      // reduced motion is asking not to have. Show the last week and stop.
+      setFrame(weeks.length - 1);
+      return;
+    }
+
+    weeks.forEach((_, i) => {
+      timers.current.push(setTimeout(() => setFrame(i), i * FRAME_MS));
+    });
+    // Return to the all-time totals rather than leaving the last week up,
+    // which would look like the table had quietly changed meaning.
+    timers.current.push(
+      setTimeout(() => setFrame(null), weeks.length * FRAME_MS + 700),
+    );
+  };
+
+  const replaying = frame !== null;
+  const activeWeek = replaying ? weeks[frame] : null;
+  const activeFrame = activeWeek ? frames.get(activeWeek) : null;
+
+  /** During a replay the table reads from the frame; otherwise the totals. */
+  const cellValue = (district: string, diagnosis: string) =>
+    replaying
+      ? activeFrame?.get(`${district}|${diagnosis}`)
+      : lookup.get(`${district}|${diagnosis}`);
+  const cellMax = replaying ? frameMax : maxCell;
 
   return (
     <AppShell role="admin" userName="K. Iyer" tabs={adminTabs}>
@@ -199,7 +267,34 @@ export default function AdminTrendsPage() {
       <Card className="overflow-hidden">
         <CardHeader
           title="Cases by district and condition"
-          subtitle="Groups below the privacy threshold are removed inside the database view, so they never reach this table"
+          subtitle={
+            replaying
+              ? "Playing back one week at a time. Cells frost over in the weeks they fell below the threshold."
+              : "Groups below the privacy threshold are removed inside the database view, so they never reach this table"
+          }
+          action={
+            weekly.source === "api" && weeks.length > 0 ? (
+              <div className="flex items-center gap-2.5">
+                {activeWeek && (
+                  <span className="nums text-[12.5px] font-semibold text-ink">
+                    week of {weekLabel(activeWeek)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={replaying ? stopReplay : startReplay}
+                  className="transition-calm inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:bg-canvas"
+                >
+                  {replaying ? (
+                    <Square className="h-3 w-3" />
+                  ) : (
+                    <Play className="h-3 w-3" />
+                  )}
+                  {replaying ? "Stop" : `Replay ${weeks.length} weeks`}
+                </button>
+              </div>
+            ) : null
+          }
         />
 
         {trends.source === "loading" && (
@@ -244,7 +339,7 @@ export default function AdminTrendsPage() {
                   <tr key={district}>
                     <td className="px-5 py-3 text-ink">{district}</td>
                     {diagnoses.map((d) => {
-                      const value = lookup.get(`${district}|${d}`);
+                      const value = cellValue(district, d);
 
                       // Absent from the view means it never cleared the
                       // threshold. Suppressed cells deliberately stay OFF the
@@ -265,7 +360,7 @@ export default function AdminTrendsPage() {
                         );
                       }
 
-                      const heat = heatColor(value, maxCell);
+                      const heat = heatColor(value, cellMax);
                       return (
                         <td key={d} className="p-1">
                           <div

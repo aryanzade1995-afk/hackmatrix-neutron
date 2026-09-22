@@ -42,6 +42,7 @@ import { CountUp, useAgeLabel } from "@/components/CountUp";
 import { ChangeChip, StatStrip } from "@/components/StatStrip";
 import { ProvePanel } from "@/components/ProvePanel";
 import { SoundToggle } from "@/components/SoundToggle";
+import { TrustDial } from "@/components/TrustDial";
 
 /** Totals per condition, summed across districts. */
 function byCondition(rows: AggregateRow[]) {
@@ -423,6 +424,8 @@ export default function AdminPage() {
         </div>
 
         <div className="space-y-6">
+          <TrustDial />
+
           <Card>
             <div className="flex items-center gap-4 px-7 py-6">
               <FigAdministrator className="h-[68px] w-auto shrink-0" />
