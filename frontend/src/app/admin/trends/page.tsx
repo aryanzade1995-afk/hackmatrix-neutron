@@ -11,6 +11,7 @@ import { CHART, HEAT_LEGEND, heatColor } from "@/components/chartTheme";
 import { Activity, EyeOff, Loader2, TrendingUp, TriangleAlert } from "lucide-react";
 import { DistrictPulse } from "@/components/DistrictPulse";
 import { ThresholdCurveCard } from "@/components/ThresholdCurve";
+import { MarbleJar } from "@/components/MarbleJar";
 
 /** Pivots the flat aggregate rows into a district × diagnosis grid. */
 function pivot(rows: AggregateRow[]) {
@@ -254,8 +255,8 @@ export default function AdminTrendsPage() {
                         return (
                           <td key={d} className="p-1">
                             <div
-                              className="flex h-11 items-center justify-center gap-1 rounded-lg bg-canvas text-[11px] text-ink-faint ring-1 ring-inset ring-border"
-                              title={`${d} in ${district}: hidden — fewer than 5 cases`}
+                              className="frosted-cell flex h-11 items-center justify-center gap-1 rounded-lg text-[11px] text-ink-faint ring-1 ring-inset ring-border"
+                              title={`${d} in ${district}: withheld. Fewer than 5 cases — which may be none at all, or may be up to four. This role cannot tell the two apart, and that is the point.`}
                             >
                               <EyeOff className="h-3 w-3" />
                               hidden
@@ -293,8 +294,8 @@ export default function AdminTrendsPage() {
                 <span className="text-[11.5px] text-ink-faint">More cases</span>
               </div>
               <span className="flex items-center gap-2 text-[11.5px] text-ink-faint">
-                <span className="flex h-3 w-6 items-center justify-center rounded bg-canvas ring-1 ring-inset ring-border" />
-                Hidden — deliberately off the scale, so it never reads as a low count
+                <span className="frosted-cell flex h-3 w-6 items-center justify-center rounded ring-1 ring-inset ring-border" />
+                Withheld — frosted, not shaded, so it never reads as a low count
               </span>
             </div>
           </>
@@ -302,6 +303,7 @@ export default function AdminTrendsPage() {
       </Card>
 
       <div className="mt-6">
+        <MarbleJar />
         <ThresholdCurveCard />
       </div>
 

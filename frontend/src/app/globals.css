@@ -164,3 +164,58 @@ body {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Suppressed heatmap cells.
+
+   A plain grey box labelled "hidden" reads as an absence. Frosted glass reads
+   as a deliberate withholding, which is the truth: the rule ran, and its
+   result is being kept back.
+
+   The shape behind the glass is abstract on purpose. Blurred digits would
+   imply a specific number is sitting there waiting to be read, and that would
+   be a lie twice over — a suppressed cell may hold one to four cases, or it
+   may hold none at all, and this role cannot tell the difference.
+   --------------------------------------------------------------------------- */
+.frosted-cell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--color-canvas);
+}
+
+.frosted-cell::before {
+  /* Two soft blobs. Not a number — see above. */
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(closest-side, rgba(110, 150, 120, 0.55), transparent 70%) 30% 45% /
+      55% 75% no-repeat,
+    radial-gradient(closest-side, rgba(47, 90, 69, 0.4), transparent 70%) 72% 60% / 45%
+      60% no-repeat;
+  filter: blur(6px);
+  z-index: -2;
+}
+
+.frosted-cell::after {
+  /* The glass itself, plus a fine noise so it reads as a surface rather than
+     a flat wash. The SVG is inline: a strict CSP blocks external fetches, and
+     this has to work offline at the venue regardless. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: blur(5px) saturate(0.7);
+  -webkit-backdrop-filter: blur(5px) saturate(0.7);
+  background-color: rgba(247, 249, 245, 0.62);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E");
+}
+
+/* Safari and Firefox with backdrop-filter disabled would show the raw blobs,
+   which would look like a value peeking through. Fall back to opaque glass. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .frosted-cell::after {
+    background-color: rgba(247, 249, 245, 0.94);
+  }
+}

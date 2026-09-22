@@ -41,6 +41,7 @@ import {
 import { CountUp, useAgeLabel } from "@/components/CountUp";
 import { ChangeChip, StatStrip } from "@/components/StatStrip";
 import { ProvePanel } from "@/components/ProvePanel";
+import { SoundToggle } from "@/components/SoundToggle";
 
 /** Totals per condition, summed across districts. */
 function byCondition(rows: AggregateRow[]) {
@@ -154,6 +155,10 @@ export default function AdminPage() {
 
       {/* Freshness, so nobody has to guess whether the page is stale. */}
       <div className="mb-3 flex items-center justify-end gap-3">
+        <SoundToggle
+          signals={signals.source === "api" ? signals.data : []}
+          totalCases={totalCases}
+        />
         {age && <span className="nums text-[11.5px] text-ink-faint">{age}</span>}
         <button
           onClick={refreshAll}
