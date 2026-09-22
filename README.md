@@ -123,11 +123,23 @@ the UI stays usable with nothing else running.
 
 ### With the database and API
 
+For local development, one script creates a throwaway Postgres cluster and
+loads everything, then prints the two connection strings:
+
 ```bash
-# 1. Database — see db/README.md for generating the role passwords
+./db/dev-db.sh start      # also: status, reseed, stop
+```
+
+It lives under `/tmp`, so it does not survive a reboot — re-run `start` and it
+rebuilds in seconds. For demo day, use a hosted Postgres instead and follow
+[`db/README.md`](db/README.md), which is the authoritative setup.
+
+```bash
+# 1. Database — hosted; see db/README.md for generating the role passwords
 psql "$SUPERUSER_URL" -v clinician_pw="'…'" -v admin_pw="'…'" -f db/schema.sql
 psql "$SUPERUSER_URL" -f db/seed.sql
 psql "$SUPERUSER_URL" -f db/bulk.sql
+psql "$SUPERUSER_URL" -f db/spike.sql   # the demo outbreak; /admin/signals is empty without it
 
 # 2. API
 cd backend

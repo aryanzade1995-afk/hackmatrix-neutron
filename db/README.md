@@ -16,6 +16,8 @@ out a permission the database never issued.
 |---|---|
 | `schema.sql` | Tables, the two roles, the grants, and the suppressed aggregate views |
 | `seed.sql` | The 23 synthetic visits (15 named patients) used by the clinician demo, transcribed from `frontend/src/lib/demo-data.ts` |
+| `spike.sql` | A deliberately manufactured outbreak so the signal detector has something to find. `/admin/signals` returns nothing without it |
+| `dev-db.sh` | Local-only helper: creates a throwaway cluster under `/tmp`, loads all of the above, prints the connection strings. Not for demo day |
 | `bulk.sql` | ~1,300 generated rows so the admin dashboard has volume, deliberately uneven so some groups suppress and others don't |
 
 All data is synthetic. No real patient records are used anywhere in this project.
@@ -129,7 +131,7 @@ Insert succeeds, update and delete do not.
 Every command above was re-run against a real Postgres 16 instance after the
 September 2026 data-realism pass (real Maharashtra-region names, ten diagnosis
 categories, ten new named clinician-demo patients) — with this schema,
-`seed.sql` and `bulk.sql` loaded: 276 patients, 1,323 visits:
+`seed.sql` and `bulk.sql` loaded: 275 patients, 1,323 visits:
 
 ```
 Admin   SELECT * FROM patients          ERROR: permission denied for table patients
@@ -163,6 +165,10 @@ City, the largest district, malaria only reached 4 recorded visits this run —
 below the threshold — while the same condition cleared it in Wagholi (6
 visits). That contrast is worth pointing at live: size of the district isn't
 what decides suppression, the count in that specific cell is.
+
+Adding `spike.sql` on top brings the totals to 335 patients and 1,383 visits.
+The suppression counts above are unaffected: the spike lands in Wagholi/Dengue,
+a cell that already cleared the threshold.
 
 Because the generators in `bulk.sql` and `seed.sql` are deterministic (based
 on row number, not real randomness), re-running this exact proof against an
