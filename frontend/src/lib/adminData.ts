@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Read-only hooks for the administrator dashboard.
@@ -46,6 +46,10 @@ export type ApiState<T> = {
   data: T[];
   source: "loading" | "api" | "unavailable";
   error: string | null;
+  /** When the last successful read landed, for the "updated Xs ago" label. */
+  fetchedAt: number | null;
+  /** Re-runs the request. Used by the manual refresh control. */
+  reload: () => void;
 };
 
 function useApiList<T>(path: string): ApiState<T> {
@@ -54,6 +58,12 @@ function useApiList<T>(path: string): ApiState<T> {
     API ? "loading" : "unavailable",
   );
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+
+  // Bumping this re-runs the effect. A counter rather than a boolean so two
+  // refreshes in quick succession are two distinct reads, not one.
+  const [nonce, setNonce] = useState(0);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (!API) {
@@ -73,6 +83,7 @@ function useApiList<T>(path: string): ApiState<T> {
         setData(rows);
         setSource("api");
         setError(null);
+        setFetchedAt(Date.now());
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
@@ -81,9 +92,9 @@ function useApiList<T>(path: string): ApiState<T> {
       });
 
     return () => controller.abort();
-  }, [path]);
+  }, [path, nonce]);
 
-  return { data, source, error };
+  return { data, source, error, fetchedAt, reload };
 }
 
 /** Totals by district and condition, already suppressed by the view. */
@@ -181,4 +192,64 @@ export function distinctFrom(rows: AggregateRow[]) {
     districts: [...new Set(rows.map((r) => r.district))].sort(),
     diagnoses: [...new Set(rows.map((r) => r.diagnosis))].sort(),
   };
+}
+
+/* -------------------------------------------------------------------------
+ * Privacy/utility tradeoff curve
+ * ---------------------------------------------------------------------- */
+
+export type ThresholdPoint = { k: number; groups: number; casesRetained: number };
+
+export type ThresholdCurve = {
+  productionK: number;
+  points: ThresholdPoint[];
+  totalCases: number;
+  computedBy: string;
+  disclosure: string;
+};
+
+/**
+ * The evidence for choosing k=5.
+ *
+ * Its own hook rather than useApiList because the endpoint returns an object,
+ * not a list — and because it is the one admin-dashboard read that is NOT
+ * served over the aggregate connection. That role cannot compute this curve:
+ * the numbers below k=5 are precisely what its views remove.
+ */
+export function useThresholdCurve() {
+  const [data, setData] = useState<ThresholdCurve | null>(null);
+  const [source, setSource] = useState<"loading" | "api" | "unavailable">(
+    API ? "loading" : "unavailable",
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!API) {
+      setSource("unavailable");
+      setError("NEXT_PUBLIC_API_URL is not set");
+      return;
+    }
+    const controller = new AbortController();
+    fetch(`${API}/admin/threshold-curve`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`threshold-curve → ${res.status}`);
+        return res.json();
+      })
+      .then((body: ThresholdCurve) => {
+        setData(body);
+        setSource("api");
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setSource("unavailable");
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => controller.abort();
+  }, []);
+
+  return { data, source, error };
 }

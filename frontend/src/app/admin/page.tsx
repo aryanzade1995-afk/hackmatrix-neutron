@@ -27,7 +27,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowUpRight, EyeOff, Loader2, Lock, SlidersHorizontal } from "lucide-react";
+import {
+  ArrowUpRight,
+  EyeOff,
+  Loader2,
+  Lock,
+  RefreshCw,
+  SlidersHorizontal,
+} from "lucide-react";
+import { CountUp, useAgeLabel } from "@/components/CountUp";
+import { ProvePanel } from "@/components/ProvePanel";
 
 /** Totals per condition, summed across districts. */
 function byCondition(rows: AggregateRow[]) {
@@ -60,34 +69,53 @@ export default function AdminPage() {
   const totalCases = trends.data.reduce((sum, r) => sum + r.caseCount, 0);
   const live = trends.source === "api";
 
+  // null rather than 0 when the backend is down: a tile that animates up to
+  // zero reads as "no cases", which is a different claim from "no data".
   const stats = [
     {
       label: "Cases in view",
-      value: live ? totalCases.toLocaleString() : "—",
+      value: live ? totalCases : null,
       delta: live ? "above the privacy threshold" : "backend unavailable",
       up: false,
     },
     {
       label: "Districts reporting",
-      value: live ? String(districts.length) : "—",
+      value: live ? districts.length : null,
       delta: "all active",
       up: null,
     },
     {
       label: "Conditions tracked",
-      value: live ? String(diagnoses.length) : "—",
+      value: live ? diagnoses.length : null,
       delta: "across the division",
       up: null,
     },
     {
       label: "Signals raised",
-      value: signals.source === "api" ? String(signals.data.length) : "—",
+      value: signals.source === "api" ? signals.data.length : null,
       delta: signals.data.some((s) => s.severity === "alert")
         ? "one or more alerts"
         : "nothing unusual",
       up: signals.data.length > 0,
     },
   ];
+
+  // The four reads are independent, so the freshest is the honest one to show
+  // — the label is about whether the page is stale, not about any one request.
+  const fetchedAt = Math.max(
+    trends.fetchedAt ?? 0,
+    weekly.fetchedAt ?? 0,
+    signals.fetchedAt ?? 0,
+    facilities.fetchedAt ?? 0,
+  );
+  const age = useAgeLabel(fetchedAt > 0 ? fetchedAt : null);
+
+  const refreshAll = () => {
+    trends.reload();
+    weekly.reload();
+    signals.reload();
+    facilities.reload();
+  };
 
   return (
     <AppShell role="admin" userName="K. Iyer" tabs={adminTabs}>
@@ -103,6 +131,18 @@ export default function AdminPage() {
         }
       />
 
+      {/* Freshness, so nobody has to guess whether the page is stale. */}
+      <div className="mb-3 flex items-center justify-end gap-3">
+        {age && <span className="nums text-[11.5px] text-ink-faint">{age}</span>}
+        <button
+          onClick={refreshAll}
+          className="transition-calm inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:bg-canvas"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Refresh
+        </button>
+      </div>
+
       {/* Stat row */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((stat) => (
@@ -112,7 +152,7 @@ export default function AdminPage() {
           >
             <p className="text-[11.5px] text-ink-faint">{stat.label}</p>
             <p className="nums text-display mt-2 text-[32px] text-forest">
-              {stat.value}
+              <CountUp value={stat.value} trigger={fetchedAt} />
             </p>
             <p className="mt-2.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted">
               {stat.up && <ArrowUpRight className="h-3 w-3 text-sage" />}
@@ -120,6 +160,10 @@ export default function AdminPage() {
             </p>
           </div>
         ))}
+      </div>
+
+      <div className="mb-6">
+        <ProvePanel />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">

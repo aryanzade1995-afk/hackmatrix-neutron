@@ -190,6 +190,22 @@ class FacilityActivity(BaseModel):
     lastWeek: Date
 
 
+class ThresholdPoint(BaseModel):
+    """One point on the privacy/utility curve. Counts only — never identities."""
+
+    k: int
+    groups: int
+    casesRetained: int
+
+
+class ThresholdCurve(BaseModel):
+    productionK: int
+    points: list[ThresholdPoint]
+    totalCases: int
+    computedBy: str
+    disclosure: str
+
+
 class TrendSignal(BaseModel):
     """A (district, diagnosis) pair whose latest week sits well above its own
     trailing average. Arithmetic over already-suppressed aggregates — no model,

@@ -19,8 +19,14 @@ from fastapi import APIRouter, Query
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
-from ..db import admin_engine
-from ..models import AggregateRow, FacilityActivity, TrendSignal
+from ..db import admin_engine, clinician_engine, role_of
+from ..models import (
+    AggregateRow,
+    FacilityActivity,
+    ThresholdCurve,
+    ThresholdPoint,
+    TrendSignal,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -209,3 +215,80 @@ def prove_separation():
         "aggregates are readable. Enforced by Postgres grants, not application code."
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Privacy/utility tradeoff
+# ---------------------------------------------------------------------------
+
+#: k values to plot. 5 is production; the rest exist to show what it cost.
+CURVE_K = (1, 2, 3, 5, 8, 10)
+
+#: The threshold actually enforced in db/schema.sql.
+PRODUCTION_K = 5
+
+
+@router.get("/threshold-curve", response_model=ThresholdCurve)
+def threshold_curve():
+    """How many (district, diagnosis) groups survive at each candidate k.
+
+    Read this one carefully, because it is the single endpoint in this file
+    that does NOT run over the admin connection.
+
+    It cannot. `admin_role` has no grant on `visits`, and the views it can read
+    have the threshold already baked into their definitions — so from that
+    connection the shape of the curve below k=5 is not merely hidden, it is
+    unobtainable. Computing it requires the custodian connection that can see
+    the underlying rows.
+
+    That makes this a governance artifact, not an administrator's query: the
+    evidence for choosing 5, published by whoever owns the data, in the same
+    spirit as publishing the schema. It returns counts and nothing else — no
+    district, no diagnosis, no group's contents, and no way to tell which
+    groups fall on either side of any line. Two numbers per k, for six k.
+
+    Worth being straight about the one thing it does disclose: subtracting the
+    count at k=5 from the count at k=1 tells you how many groups are being
+    suppressed. That is a deliberate publication, and it is why this is served
+    from the custodian's connection rather than the dashboard's. The claim on
+    the overview — that the number of hidden groups is unknown *to this role* —
+    stays true, because that role still cannot compute it.
+    """
+    sql = text(
+        """
+        WITH groups AS (
+          SELECT p.district, v.diagnosis, COUNT(*) AS n
+          FROM visits v
+          JOIN patients p ON p.id = v.patient_id
+          GROUP BY p.district, v.diagnosis
+        )
+        SELECT
+          k.k,
+          COUNT(*) FILTER (WHERE g.n >= k.k)                      AS groups,
+          COALESCE(SUM(g.n) FILTER (WHERE g.n >= k.k), 0)         AS cases_retained
+        FROM groups g
+        CROSS JOIN unnest(CAST(:ks AS int[])) AS k(k)
+        GROUP BY k.k
+        ORDER BY k.k
+        """
+    )
+
+    # The custodian connection, for the reason given above.
+    with clinician_engine().connect() as conn:
+        rows = conn.execute(sql, {"ks": list(CURVE_K)}).all()
+        total = conn.execute(text("SELECT COUNT(*) FROM visits")).scalar_one()
+
+    return ThresholdCurve(
+        productionK=PRODUCTION_K,
+        points=[
+            ThresholdPoint(k=r.k, groups=r.groups, casesRetained=r.cases_retained)
+            for r in rows
+        ],
+        totalCases=total,
+        computedBy=role_of(clinician_engine()),
+        disclosure=(
+            "Counts only. No group is named, and nothing here identifies which "
+            "groups fall below any threshold. Computed over the custodian "
+            "connection — the aggregate role cannot produce this curve."
+        ),
+    )

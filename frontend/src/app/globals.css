@@ -143,3 +143,24 @@ body {
     transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
+
+/* Terminal line reveal on the "Prove it live" panel. Each line fades and
+   rises a few pixels as it lands, so the transcript reads as arriving rather
+   than as having always been there. */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The proof is the text, not the motion. */
+  .animate-\[fadeIn_240ms_ease-out\] {
+    animation: none;
+  }
+}

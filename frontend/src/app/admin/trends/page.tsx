@@ -9,6 +9,8 @@ import { adminTabs } from "@/lib/demo-data";
 import { distinctFrom, useSignals, useTrends, type AggregateRow } from "@/lib/adminData";
 import { CHART, HEAT_LEGEND, heatColor } from "@/components/chartTheme";
 import { Activity, EyeOff, Loader2, TrendingUp, TriangleAlert } from "lucide-react";
+import { DistrictPulse } from "@/components/DistrictPulse";
+import { ThresholdCurveCard } from "@/components/ThresholdCurve";
 
 /** Matches the backend's default `baseline_weeks` on /admin/signals. */
 const baselineWeeks = 8;
@@ -161,6 +163,12 @@ export default function AdminTrendsPage() {
         </div>
       </Card>
 
+      {/* ------------------------------------------------- District pulse */}
+      <DistrictPulse
+        districts={districts}
+        signals={signals.source === "api" ? signals.data : []}
+      />
+
       {/* ------------------------------------------------------------ Table */}
       <Card className="overflow-hidden">
         <CardHeader
@@ -267,6 +275,10 @@ export default function AdminTrendsPage() {
           </>
         )}
       </Card>
+
+      <div className="mt-6">
+        <ThresholdCurveCard />
+      </div>
 
       <div className="mt-6">
         <SectionLabel>Why some cells are hidden</SectionLabel>
