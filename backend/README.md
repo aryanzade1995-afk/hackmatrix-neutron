@@ -45,6 +45,9 @@ The database must exist first — see `db/README.md`.
 | `GET /clinician/patients/{id}/visits` | Visits, newest first |
 | `POST /clinician/patients` | Server assigns the next `PT-####` |
 | `POST /clinician/visits` | Appends; server assigns id and display date |
+| `POST /clinician/access-log` | Appends one hash-chained entry; a reason is required for `emergency_access` |
+| `GET /clinician/access-log` | The trail, newest first |
+| `GET /clinician/access-log/verify` | Recomputes every hash and reports the first break |
 
 There is no `PUT`, `PATCH` or `DELETE` for visits, and there should never be.
 A correction is a new row carrying `supersedes`. The clinician role holds no
@@ -56,7 +59,13 @@ A correction is a new row carrying `supersedes`. The clinician role holds no
 |---|---|
 | `GET /admin/aggregates?district=&diagnosis=` | Weekly counts from `district_aggregates` |
 | `GET /admin/trends` | Totals from `condition_totals` |
+| `GET /admin/signals` | Conditions whose latest week is well above their own trailing average |
 | `GET /admin/prove` | Attempts to read identified tables and reports the refusal |
+
+`/admin/signals` is arithmetic over the suppressed aggregates and nothing more — no
+model, no prediction. Its baseline is computed only from weeks the admin role could
+actually see, so a suppressed week stays invisible to it. Correcting for those weeks
+would leak their counts back in.
 
 ---
 
@@ -69,7 +78,7 @@ a terminal:
 {
   "patients":   { "blocked": true, "detail": "permission denied for table patients" },
   "visits":     { "blocked": true, "detail": "permission denied for table visits" },
-  "aggregates": { "blocked": false, "visibleGroups": 20 },
+  "aggregates": { "blocked": false, "visibleGroups": 33 },
   "connectedAs": "admin_role",
   "summary": "Identified tables are unreachable on this connection; only suppressed aggregates are readable. Enforced by Postgres grants, not application code."
 }
@@ -83,7 +92,7 @@ serious finding — the endpoint reports it rather than hiding it.
 ## Verified
 
 Run against Postgres 16 with `schema.sql`, `seed.sql` and `bulk.sql` loaded
-(265 patients, 1,311 visits):
+(the full seed; currently 335 patients, 1,383 visits):
 
 ```
 GET  /health                              clinician_role / admin_role
@@ -93,7 +102,7 @@ GET  /clinician/patients/search?q=priya   ['Priya Nair']
 GET  /clinician/patients/search?q=96…77   ['Sunita Deshpande']   (phone match)
 POST /clinician/patients                  201, id PT-2448
 POST /clinician/visits                    201, persisted and read back
-GET  /admin/trends                        Pune City/Dengue 223, Wagholi/Dengue 170…
+GET  /admin/trends                        Wagholi/Dengue 214, Pune City/Dengue 207…
 GET  /admin/prove                         both identified tables blocked
 PUT/PATCH/DELETE /clinician/visits/…      404 — no such route
 ```

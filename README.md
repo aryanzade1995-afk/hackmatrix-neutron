@@ -34,39 +34,61 @@ never granted `SELECT` on that table. See [`db/README.md`](db/README.md).
 | **Frontend reading and writing through the API** | **Built — verified** |
 | **Real QR scanning (camera and image)** | **Built — image decode verified** |
 | **Clinical summary generated from the record** | **Built — deterministic, cited** |
+| **Admin dashboard reading live aggregates** | **Built — no mock fallback, by design** |
+| **Outbreak signal detection** | **Built — [`/admin/signals`](backend/app/routers/admin.py)** |
+| **Hash-chained audit log, persisted** | **Built — [verifiable](backend/README.md)** |
+| **Break-glass emergency access** | **Built — reason required, logged** |
+| **Patient-facing plain-language summary** | **Built — printable** |
+| **Overdue follow-up detection** | **Built — attendance only** |
+| **Offline write queue** | **Built — survives reload, replays on reconnect** |
 | Authentication (login, sessions) | **Not built** — see below |
-| Audit log persisted to the database | Not built — currently UI mock data |
 
 ### What is honestly not finished
 
 - **Authentication.** `/login` is a cosmetic role picker. The *data* separation is real and
   provable; deciding which role a given human gets is still ahead. This is worth stating
   plainly rather than letting it be discovered.
-- **The audit log** shown in the UI is mock data, not a database table.
 - **Live camera decoding** has not been tested on hardware with a camera. Decoding from a
-  QR *image* has been verified end to end.
+  QR *image* has been verified end to end, including the routing that follows.
 - **Re-identification by differencing** overlapping aggregate queries is not defended
   against. A threshold on single queries does not stop that.
+- **The outbreak detector's baseline ignores suppressed weeks.** A week below the
+  threshold is invisible to it exactly as it is to a human reading the dashboard. That is
+  the correct limitation to have — a version that corrected for the missing weeks would
+  leak the suppressed counts back in through the side door.
+- **The allergy check is prototype logic, not clinical decision support.** It warns on a
+  shared drug class and never blocks. The system never suggests or infers a diagnosis
+  anywhere.
 
 ---
 
-## The three claims, and where each is proved
+## The four claims, and where each is proved
+
+Each of these is checkable, not asserted. That is the whole point of the project.
 
 **1 — An administrator cannot read an identified record.**
-Enforced by `GRANT`/`REVOKE` in [`db/schema.sql`](db/schema.sql). Verified against Postgres
-16 with 265 patients and 1,311 visits loaded. Also exposed over HTTP at `GET /admin/prove`,
-so it can be shown without a terminal.
+Enforced by `GRANT`/`REVOKE` in [`db/schema.sql`](db/schema.sql). Verified against
+Postgres 16 with the full seed loaded. Also exposed over HTTP at `GET /admin/prove`, so
+it can be shown in a browser without a terminal — and it reports `blocked: false` if the
+grants ever break, rather than hiding a failure.
 
 **2 — Small groups are suppressed before anyone can see them.**
 The `HAVING COUNT(*) >= 5` lives inside the view definition, so the admin role never
-receives an unsuppressed number for application code to leak. On the seeded data: 30
-groups exist, 20 are visible, 10 are hidden — including every named demo patient's
-diagnosis.
+receives an unsuppressed number for application code to leak. On the current data: **56
+groups exist, 33 are visible, 23 are hidden.** Malaria stays below the threshold even in
+Pune City, the largest district — the rule reacts to the count in a cell, not to district
+size.
 
 **3 — Records are append-only.**
-The clinician role holds `SELECT, INSERT` and deliberately not `UPDATE` or `DELETE`. There
-is no edit route in the API, and adding one later would still fail at the database. A
-correction is a new visit row carrying `supersedes`.
+The clinician role holds `SELECT, INSERT` and deliberately not `UPDATE` or `DELETE`.
+There is no edit route in the API, and adding one later would still fail at the database.
+A correction is a new visit row carrying `supersedes`.
+
+**4 — The audit trail cannot be quietly rewritten.**
+Every row in `access_log` commits to the previous row's hash, so altering one breaks
+every hash after it. `GET /clinician/access-log/verify` recomputes the whole chain and
+reports the first divergence — tested by tampering with a row as superuser, which was
+caught at exactly that row. The clinician role cannot perform that edit at all.
 
 ---
 
@@ -129,20 +151,22 @@ npm run dev
 
 | Route | What it does |
 | --- | --- |
-| `/clinician/scan` | Camera or image QR scan, plus simulated paths |
+| `/clinician/scan` | Camera or image QR scan, break-glass access, plus simulated paths |
 | `/clinician/register` | One-time registration, issues the patient's QR |
 | `/clinician/find` | Search by name, phone or id; reissue a lost QR |
 | `/clinician` | The record: generated summary, allergy conflicts, timeline, vitals trends |
 | `/clinician/visit/new` | Four-step visit entry with live allergy checking |
+| `/clinician/patient-summary` | Plain-language summary to hand to the patient, printable |
 | `/clinician/history` | Every visit, conflicts flagged |
-| `/clinician/audit` | Hash-chained access log (UI mock) |
+| `/clinician/follow-ups` | Patients on long-term medicine not seen recently |
+| `/clinician/audit` | The real access log, with a "verify chain" button |
 
 ### Administrator
 
 | Route | What it does |
 | --- | --- |
 | `/admin` | Aggregate dashboard with the privacy threshold |
-| `/admin/trends` | Cases by district, suppressed rows marked |
+| `/admin/trends` | Cases by district, suppressed cells marked, plus outbreak signals |
 | `/admin/ask` | Natural-language query over aggregates only |
 
 `/lab/*` are internal design comparison pages, not part of the product.
@@ -173,10 +197,26 @@ Node 20+, which the build environment does not have.
 
 ## Design notes
 
-The clinical summary is **generated deterministically from the visit record**, not by a
-language model. Each sentence is constructed from the visits it cites, so a claim without a
-source cannot be produced — a guarantee by construction rather than a post-check on model
-output.
+**The clinical summary is generated deterministically from the visit record**, not by a
+language model. Each sentence is constructed from the visits it cites, so a claim without
+a source cannot be produced — a guarantee by construction rather than a post-check on
+model output. The patient-facing summary is a second renderer over the same computed
+facts, so the two cannot drift apart and disagree about one record.
 
-Medicine ranking reports what has actually been prescribed for a diagnosis at that facility.
-It is a statement of frequency, never a recommendation.
+**Medicine ranking reports what has actually been prescribed** for a diagnosis at that
+facility. It is a statement of frequency, never a recommendation. The doctor can always
+type something not on the list.
+
+**Follow-up detection reports attendance, not clinical judgment.** A patient stable on a
+repeat prescription and one who stopped taking it look identical from the data; only the
+clinician can tell them apart.
+
+**The admin dashboard has no mock fallback.** If the API is unreachable it says so rather
+than showing stale numbers — the opposite of the clinician side, which falls back to seed
+data because a record screen with no patient is simply broken. Faking live data on the
+privacy-critical side would undercut the claim the whole database layer exists to prove.
+
+**Writes survive losing the network.** Rural PHC connectivity is the deployment context,
+not an edge case, so a failed write is queued to `localStorage` and replayed on
+reconnect. Replay is idempotent because ids are generated client-side: a repeat hits the
+backend's "honour a client-supplied id, 409 if taken" path.
