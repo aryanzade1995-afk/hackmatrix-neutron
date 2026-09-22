@@ -212,8 +212,56 @@ Being precise about the gap, since the point of this directory is provability:
   *data* separation is real and provable; deciding *which* role a given human
   gets is still ahead. Say this plainly in the demo rather than letting a judge
   discover it.
-- **The audit log is not yet in the database.** The hash-chained log shown in
-  the UI is frontend mock data.
+- **Break-glass is not gated on anything.** Emergency access is recorded
+  faithfully, but nothing stops a clinician from choosing it. In a real
+  deployment that path needs a second approver or a supervisor notification;
+  here it only leaves a mark.
 - **Re-identification via repeated queries** is not defended against. A
   threshold on single queries does not stop someone differencing overlapping
   aggregates. Real deployments need query logging and budgets; we have neither.
+
+
+## Demonstrating tamper-evidence
+
+The audit log is hash-chained: each row commits to the previous row's digest,
+so altering any entry invalidates every digest after it.
+`GET /clinician/access-log/verify` recomputes the whole chain server-side and
+reports the first row that stops matching. The clinician Audit log page draws
+this as connected blocks and walks them as they verify.
+
+To seed a realistic chain:
+
+```
+python3 db/seed-audit.py --reset
+```
+
+It posts through the API rather than inserting SQL, because rows inserted
+directly would carry invented digests and the first verification would
+correctly call the chain broken.
+
+To show a break on stage, edit a row *outside* the application:
+
+```
+psql -h /tmp/hmsock -p 55432 -U postgres -d hackmatrix \
+  -c "UPDATE access_log SET reason='routine check' WHERE id=5;"
+```
+
+Then press **Verify chain integrity**. It stops at #5 and dims everything
+after it.
+
+Two things are worth saying out loud while doing this, because they are the
+actual argument:
+
+1. That UPDATE needs a Postgres **superuser**. Neither application role holds
+   UPDATE or DELETE on `access_log` — `clinician_role` attempting the same
+   statement gets `permission denied for table access_log`. Try it on stage; a
+   refusal is more convincing than a slide.
+2. Even with superuser access, the edit did not go unnoticed. That is the
+   whole claim: not that the log cannot be altered, but that it cannot be
+   altered *quietly*.
+
+Restore afterwards by re-running the seed script with `--reset`.
+
+There is deliberately **no API endpoint for tampering**. A write path capable
+of rewriting audit rows would be a liability that no demo convenience
+justifies, and a judge would be right to flag it.

@@ -1,19 +1,18 @@
 "use client";
 
-import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
 import { Card, CardHeader, PageTitle } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
 import { clinicianTabs } from "@/lib/demo-data";
-import { useAccessLog, verifyChain, type VerifyResult } from "@/lib/auditLog";
+import { useAccessLog } from "@/lib/auditLog";
+import { ChainBlocks } from "@/components/ChainBlocks";
 import {
   CheckCircle2,
   Link2,
   Loader2,
   ShieldAlert,
-  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 
@@ -30,14 +29,6 @@ function when(iso: string) {
 
 export default function ClinicianAuditPage() {
   const { entries, source, error } = useAccessLog();
-  const [result, setResult] = useState<VerifyResult | null>(null);
-  const [checking, setChecking] = useState(false);
-
-  async function runVerify() {
-    setChecking(true);
-    setResult(await verifyChain());
-    setChecking(false);
-  }
 
   return (
     <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
@@ -45,56 +36,9 @@ export default function ClinicianAuditPage() {
         eyebrow="Tamper-evident record"
         title="Audit log"
         subtitle="Every access attempt is recorded, including the ones that were refused."
-        action={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={runVerify}
-              disabled={checking || source !== "api"}
-              className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-4 py-2 text-[13px] font-semibold text-cream hover:bg-forest-deep disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {checking ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Link2 className="h-3.5 w-3.5" />
-              )}
-              Verify chain
-            </button>
-          </div>
-        }
       />
 
-      {/* Verification result — the tamper-evidence claim, made checkable */}
-      {result && (
-        <div
-          className={`mb-6 flex items-start gap-3.5 rounded-2xl px-7 py-5 ${
-            result.valid ? "bg-success-tint" : "border border-danger bg-danger-tint"
-          }`}
-        >
-          {result.valid ? (
-            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-          ) : (
-            <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
-          )}
-          <div>
-            <p
-              className={`text-[14.5px] font-semibold ${
-                result.valid ? "text-success" : "text-danger"
-              }`}
-            >
-              {result.valid
-                ? `${result.rowsChecked} ${result.rowsChecked === 1 ? "entry" : "entries"} verified — chain intact`
-                : `Break detected at entry #${result.brokenAtId}`}
-            </p>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
-              {result.valid
-                ? "Every hash was recomputed from its stored fields and the entry before it. Nothing has been altered."
-                : (result.detail ??
-                  "An entry no longer matches its recorded hash. Everything after it is suspect.")}
-            </p>
-          </div>
-        </div>
-      )}
+      {source === "api" && <ChainBlocks entries={entries} />}
 
       <Card>
         <CardHeader
