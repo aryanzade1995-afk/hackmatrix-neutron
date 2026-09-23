@@ -28,6 +28,7 @@ DB="hackmatrix"
 
 CLINICIAN_PW="${CLINICIAN_PW:-devclinician}"
 ADMIN_PW="${ADMIN_PW:-devadmin}"
+AUTH_PW="${AUTH_PW:-devauth}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUPER="postgresql://postgres@/$DB?host=$SOCK&port=$PGPORT"
@@ -51,6 +52,16 @@ load_data() {
   psql "$SUPER" -q -v ON_ERROR_STOP=1 \
     -v clinician_pw="'$CLINICIAN_PW'" -v admin_pw="'$ADMIN_PW'" \
     -f "$ROOT/db/schema.sql" >/dev/null
+
+  # Staff accounts, and the third database role that reads them. Applied here
+  # rather than left to a manual step because without it the API starts fine,
+  # the pages load, and every login fails — which looks like a broken app, not
+  # a missing setup step. The passwords are set separately by
+  # db/seed_staff.py, which this script deliberately does not run: it should
+  # not be inventing credentials.
+  echo "  applying staff table and auth role"
+  psql "$SUPER" -q -v ON_ERROR_STOP=1 \
+    -v auth_pw="'$AUTH_PW'" -f "$ROOT/db/auth.sql" >/dev/null
 
   # seed.sql truncates with CASCADE, which also clears access_log. That is
   # expected: the audit trail refills as soon as a record is opened.
@@ -101,6 +112,7 @@ case "${1:-start}" in
     echo "Put these in backend/.env:"
     echo "DATABASE_URL_CLINICIAN=postgresql+psycopg://clinician_role:$CLINICIAN_PW@/$DB?host=$SOCK&port=$PGPORT"
     echo "DATABASE_URL_ADMIN=postgresql+psycopg://admin_role:$ADMIN_PW@/$DB?host=$SOCK&port=$PGPORT"
+    echo "DATABASE_URL_AUTH=postgresql+psycopg://auth_role:$AUTH_PW@/$DB?host=$SOCK&port=$PGPORT"
     ;;
 
   reseed)

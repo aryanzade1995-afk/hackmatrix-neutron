@@ -204,15 +204,69 @@ export type FollowUpGap = {
   daysSinceLastVisit: number;
 };
 
+/** The same finding, for one patient, without repeating who they are. */
+export type FollowUpStatus = Omit<FollowUpGap, "patient">;
+
 /**
- * Patients on an open-ended medicine — no stop date, so the long-term case:
- * diabetes, hypertension, asthma — who have not been seen in `thresholdDays`.
+ * Whether one patient has fallen out of contact while on a repeat medicine.
+ *
+ * "Overdue" here means two things at once, and both are required: there is an
+ * open-ended prescription on record — no stop date, so the long-term case —
+ * and the last visit was more than `thresholdDays` ago. A five-day antibiotic
+ * course finishing is not a care gap, and neither is a long-term patient who
+ * came in last week.
  *
  * This reports an attendance gap and nothing more. It says nothing about
  * whether the gap matters for a given patient, does not infer a diagnosis, and
  * makes no clinical recommendation. Someone stable on a repeat prescription
  * and someone who has stopped taking it look identical from here; only the
  * clinician can tell them apart.
+ *
+ * Returns null when there is nothing to report, so a caller can treat the
+ * presence of a result as the finding itself.
+ */
+export function followUpStatus(
+  patient: Patient,
+  visits: Visit[],
+  thresholdDays = 90,
+  asOf: Date = new Date(),
+): FollowUpStatus | null {
+  const theirs = visitsForPatient(visits, patient.id);
+  if (theirs.length === 0) return null;
+
+  // Open-ended prescriptions only, oldest first — the answer to "since when"
+  // is when the repeat started, not when it was last reissued.
+  const ongoing = theirs
+    .flatMap((v) =>
+      v.prescriptions
+        .filter((p) => p.durationDays === null)
+        .map((prescription) => ({ prescription, visit: v })),
+    )
+    .sort((a, b) => a.visit.date.localeCompare(b.visit.date));
+  if (ongoing.length === 0) return null;
+
+  const lastVisit = [...theirs].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const daysSinceLastVisit = Math.floor(
+    (asOf.getTime() - new Date(lastVisit.date).getTime()) / 86_400_000,
+  );
+  if (daysSinceLastVisit < thresholdDays) return null;
+
+  return {
+    lastVisit,
+    drug: ongoing[0].prescription.drug,
+    ongoingSince: ongoing[0].visit.date,
+    daysSinceLastVisit,
+  };
+}
+
+/**
+ * Every patient at one facility with an open follow-up gap, worst first.
+ *
+ * A thin wrapper over followUpStatus on purpose: the worklist and the badge on
+ * a patient's record have to agree about who is overdue, and the surest way to
+ * guarantee that is for them to be the same function. Two implementations of
+ * "overdue" would drift, and the drift would show up as a patient flagged on
+ * one screen and not the other.
  */
 export function overdueFollowUps(
   patients: Patient[],
@@ -221,39 +275,13 @@ export function overdueFollowUps(
   thresholdDays = 90,
   asOf: Date = new Date(),
 ): FollowUpGap[] {
-  const out: FollowUpGap[] = [];
-
-  for (const patient of patients.filter((p) => p.facility === facility)) {
-    const theirs = visitsForPatient(visits, patient.id);
-    if (theirs.length === 0) continue;
-
-    // Open-ended prescriptions only. A five-day antibiotic course finishing
-    // is not a care gap.
-    const ongoing = theirs
-      .flatMap((v) =>
-        v.prescriptions
-          .filter((p) => p.durationDays === null)
-          .map((p) => ({ prescription: p, visit: v })),
-      )
-      .sort((a, b) => a.visit.date.localeCompare(b.visit.date));
-    if (ongoing.length === 0) continue;
-
-    const last = [...theirs].sort((a, b) => b.date.localeCompare(a.date))[0];
-    const daysSince = Math.floor(
-      (asOf.getTime() - new Date(last.date).getTime()) / 86_400_000,
-    );
-    if (daysSince < thresholdDays) continue;
-
-    out.push({
-      patient,
-      lastVisit: last,
-      drug: ongoing[0].prescription.drug,
-      ongoingSince: ongoing[0].visit.date,
-      daysSinceLastVisit: daysSince,
-    });
-  }
-
-  return out.sort((a, b) => b.daysSinceLastVisit - a.daysSinceLastVisit);
+  return patients
+    .filter((p) => p.facility === facility)
+    .flatMap((patient) => {
+      const status = followUpStatus(patient, visits, thresholdDays, asOf);
+      return status ? [{ patient, ...status }] : [];
+    })
+    .sort((a, b) => b.daysSinceLastVisit - a.daysSinceLastVisit);
 }
 
 /** Diagnosis text already used at this facility, for typeahead only. */

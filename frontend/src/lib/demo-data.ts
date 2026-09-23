@@ -864,7 +864,6 @@ export const clinicianTabs = [
   { label: "Register", href: "/clinician/register" },
   { label: "Find patient", href: "/clinician/find" },
   { label: "Record", href: "/clinician" },
-  { label: "Visit history", href: "/clinician/history" },
   { label: "Follow-ups", href: "/clinician/follow-ups" },
   { label: "Audit log", href: "/clinician/audit" },
 ];

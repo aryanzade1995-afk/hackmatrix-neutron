@@ -169,7 +169,6 @@ npm run dev
 | `/clinician` | The record: generated summary, allergy conflicts, timeline, vitals trends |
 | `/clinician/visit/new` | Four-step visit entry with live allergy checking |
 | `/clinician/patient-summary` | Plain-language summary to hand to the patient, printable |
-| `/clinician/history` | Every visit, conflicts flagged |
 | `/clinician/follow-ups` | Patients on long-term medicine not seen recently |
 | `/clinician/audit` | The real access log, with a "verify chain" button |
 

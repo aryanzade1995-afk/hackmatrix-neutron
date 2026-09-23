@@ -21,6 +21,8 @@ import {
   conflictsForVisit,
   findAllergyConflicts,
   findPatientById,
+  followUpStatus,
+  formatBp,
   trendOf,
   visitsForPatient,
   vitalSeries,
@@ -28,7 +30,9 @@ import {
 } from "@/lib/clinical";
 import {
   ArrowDownRight,
+  ArrowRight,
   ArrowUpRight,
+  CalendarClock,
   CheckCircle2,
   Minus,
   FileText,
@@ -48,6 +52,12 @@ const VITALS: { key: VitalKey; label: string; unit: string; lowerIsBetter: boole
   { key: "weightKg", label: "Weight", unit: "kg", lowerIsBetter: true },
   { key: "heartRate", label: "Resting HR", unit: "bpm", lowerIsBetter: true },
 ];
+
+/** "Mar 2026" — a repeat prescription starts in a month, not on a memorable day. */
+function monthYear(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
 
 export default function ClinicianPage() {
   return (
@@ -73,6 +83,10 @@ function ClinicianRecord() {
   // the audit entry. Nobody should mistake the parameter for a control.
   const viaEmergency = searchParams.get("emergency") === "1";
   const conflicts = findAllergyConflicts(visits, patient.allergies);
+
+  // Same function the facility worklist uses, so a patient flagged here is
+  // exactly the set flagged there — see followUpStatus in lib/clinical.
+  const followUp = followUpStatus(patient, visits);
   const delta = changesSinceLastVisit(visits);
   const summary = buildSummary(patient, visits);
   const facilityCount = new Set(visits.map((v) => v.facility)).size;
@@ -220,6 +234,33 @@ function ClinicianRecord() {
         </div>
       )}
 
+      {/* Below the allergy conflicts on purpose: a prescription clashing with a
+          recorded allergy is the more urgent thing on this screen, and this
+          must not push it down the page. */}
+      {followUp && (
+        <Link
+          href="/clinician/follow-ups"
+          className="transition-calm mb-7 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface px-7 py-4 hover:bg-canvas"
+        >
+          <CalendarClock
+            className={`h-4 w-4 shrink-0 ${
+              followUp.daysSinceLastVisit >= 365 ? "text-danger" : "text-warning"
+            }`}
+          />
+          <Badge tone={followUp.daysSinceLastVisit >= 365 ? "danger" : "warning"}>
+            Overdue {followUp.daysSinceLastVisit} days
+          </Badge>
+          <span className="text-[13px] text-ink-muted">
+            On <span className="font-medium text-ink">{followUp.drug}</span> since{" "}
+            {monthYear(followUp.ongoingSince)}, last seen {followUp.lastVisit.display}.
+          </span>
+          <span className="ml-auto inline-flex items-center gap-1.5 text-[12.5px] font-medium text-ink-muted">
+            Facility worklist
+            <ArrowRight className="h-3.5 w-3.5" />
+          </span>
+        </Link>
+      )}
+
       <div
         className={`grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] ${
           visits.length === 0 ? "hidden" : ""
@@ -323,6 +364,10 @@ function ClinicianRecord() {
                         </p>
                         <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-muted">
                           {visit.notes}
+                        </p>
+                        <p className="nums mt-2 text-[12px] text-ink-faint">
+                          BP {formatBp(visit.vitals)} · {visit.vitals.weightKg} kg ·{" "}
+                          {visit.vitals.heartRate} bpm
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {visit.prescriptions.map((p) => {
