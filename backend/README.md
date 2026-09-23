@@ -121,3 +121,61 @@ changes in any page.
 - **The audit log** is still frontend mock data, not a table.
 - **Rate limiting and query budgets.** A threshold on single queries does not
   stop someone differencing overlapping aggregates over time.
+
+## WhatsApp delivery of the patient QR
+
+Optional. Everything else runs without it; only the **Send to WhatsApp** button
+on the QR panel needs the setup below.
+
+### Why ngrok is required
+
+Twilio's API takes a **URL** for media, not an upload and not a base64 blob.
+Twilio's own servers fetch the image over the internet, which means:
+
+- `http://localhost:8000` can never work. To Twilio, `localhost` is Twilio's
+  machine, not yours.
+- The backend has to be publicly reachable for the duration of the send.
+
+So during any live demo:
+
+```
+ngrok http 8000
+```
+
+and put the `https://…` URL it prints into `backend/.env`:
+
+```
+PUBLIC_BASE_URL=https://a1b2c3d4.ngrok-free.app
+```
+
+**On the free tier this URL changes every time ngrok restarts.** Update
+`PUBLIC_BASE_URL` and restart the backend each time, or Twilio will fetch from
+a dead address and the message arrives with a broken image. The send route
+refuses to build a localhost URL rather than letting that happen silently.
+
+### Sandbox opt-in is manual, and per phone
+
+The Twilio WhatsApp Sandbox will only deliver to a number that has **already
+sent the sandbox join phrase** to the sandbox number from WhatsApp. This is a
+one-time step for each phone and **cannot be done by this application** — no
+API call performs it.
+
+Test with every handset you plan to use *before* the day. The failure mode is
+that a number silently stops receiving, and on stage it looks identical to a
+credentials problem. The app reports this case specifically (Twilio codes
+63015 / 63007 / 21608) with a message saying the number has not joined, rather
+than a generic failure.
+
+### What "sent" means
+
+A green result means **Twilio accepted the message**, which is queued, not
+delivered. The interface says so rather than claiming the patient has it.
+
+### Checklist before demoing
+
+1. `pip install -r backend/requirements.txt` (adds `twilio` and `qrcode[pil]`)
+2. `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` in `.env`
+3. `ngrok http 8000` running, its URL in `PUBLIC_BASE_URL`, backend restarted
+4. Demo handset has sent the join phrase to the sandbox number
+5. The patient you will register has a phone in `+<country><number>` form
+
