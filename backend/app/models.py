@@ -229,6 +229,24 @@ class TrendSignal(BaseModel):
     severity: Literal["watch", "alert"]
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """What the caller learns on success. Deliberately no token in the body —
+    the session lives in an HttpOnly cookie, out of reach of page scripts."""
+
+    role: Literal["clinician", "admin"]
+    username: str
+
+
+class MeResponse(BaseModel):
+    username: str
+    role: str
+
+
 class Health(BaseModel):
     status: str
     clinicianRole: str | None = None

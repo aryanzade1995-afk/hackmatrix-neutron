@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { Avatar } from "./Avatar";
 import { Mark } from "./Mark";
 import { useStore } from "@/lib/store";
-import { CloudOff, Check } from "lucide-react";
+import { CloudOff, Check, Loader2, LogOut } from "lucide-react";
+import { logout, useSession } from "@/lib/session";
 
 export type ShellTab = {
   label: string;
@@ -57,6 +59,50 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const session = useSession();
+
+  /**
+   * Send anyone without the right session back to the login page.
+   *
+   * This is a rendering decision, not the access control — the API refuses
+   * these requests regardless, from a cookie this code cannot read. Without
+   * it, a clinician who wandered into /admin would see the dashboard frame
+   * and a page full of 403s, which reads as a broken app rather than a
+   * boundary doing its job.
+   *
+   * Nothing happens while `source` is "loading" (the answer has not arrived)
+   * or "unavailable" (the backend is unreachable). Redirecting on the latter
+   * would log a clinician out because their wifi dropped.
+   */
+  useEffect(() => {
+    if (session.source !== "api") return;
+    if (session.data === null || session.data.role !== role) {
+      router.replace("/login");
+    }
+  }, [session.source, session.data, role, router]);
+
+  async function signOut() {
+    await logout();
+    router.replace("/login");
+  }
+
+  // Hold the frame back until the session is known, so a protected page never
+  // paints for someone who is about to be redirected away from it.
+  if (session.source === "api" && (session.data === null || session.data.role !== role)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="flex items-center gap-2 text-[13px] text-ink-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Redirecting to sign in…
+        </p>
+      </div>
+    );
+  }
+
+  // The signed-in name from the server, falling back to the prop while the
+  // session resolves so the header does not flicker empty.
+  const displayName = session.data?.username ?? userName;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -97,9 +143,20 @@ export function AppShell({
             </span>
             <span className="h-5 w-px bg-white/15" />
             <div className="flex items-center gap-2.5">
-              <Avatar name={userName} size="sm" tone="cream" />
-              <span className="hidden text-[13px] text-cream sm:block">{userName}</span>
+              <Avatar name={displayName} size="sm" tone="cream" />
+              <span className="hidden text-[13px] text-cream sm:block">
+                {displayName}
+              </span>
             </div>
+            <button
+              type="button"
+              onClick={signOut}
+              title="Sign out"
+              className="transition-calm inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-cream-muted hover:bg-white/[0.08] hover:text-cream"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:block">Log out</span>
+            </button>
           </div>
         </div>
       </header>

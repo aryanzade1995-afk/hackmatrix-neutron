@@ -4,3 +4,7 @@ sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 pydantic==2.10.4
 python-dotenv==1.0.1
+
+# Authentication. bcrypt for password hashing, PyJWT for the session cookie.
+bcrypt==5.0.0
+pyjwt==2.7.0

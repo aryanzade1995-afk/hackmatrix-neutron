@@ -1,14 +1,81 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Mark } from "@/components/Mark";
 import { FigClinician } from "@/components/Figures";
-import { ArrowRight, Lock } from "lucide-react";
+import { Loader2, Lock, TriangleAlert } from "lucide-react";
 
-const roles = [
-  { href: "/clinician", label: "Clinician", hint: "opens one patient in full" },
-  { href: "/admin", label: "Administrator", hint: "sees counts, never names" },
-];
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+/**
+ * Staff sign in.
+ *
+ * This page used to carry two "continue as" links straight into the clinician
+ * and administrator areas, with the username and password fields wired to
+ * nothing. The role a visitor got was whichever link they clicked.
+ *
+ * Now the server decides. The credentials are checked against a bcrypt hash in
+ * the `staff` table, and the role comes back from the session rather than from
+ * the caller's choice — so there is no longer any way to ask for a role, only
+ * to prove one.
+ */
 export default function LoginPage() {
+  const router = useRouter();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!username.trim() || !password) {
+      setError("Enter both a username and a password");
+      return;
+    }
+    if (!API) {
+      setError("NEXT_PUBLIC_API_URL is not set, so there is no server to ask.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // The session arrives as an HttpOnly cookie; without this it is
+        // dropped and the user lands back here.
+        credentials: "include",
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(
+          typeof body?.detail === "string"
+            ? body.detail
+            : "Invalid username or password",
+        );
+        return;
+      }
+
+      const { role } = (await res.json()) as { role: "clinician" | "admin" };
+      // The destination comes from the server's answer, not from anything
+      // typed into this page.
+      router.push(role === "admin" ? "/admin" : "/clinician");
+    } catch {
+      setError("Could not reach the server. Check that the API is running.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    "transition-calm w-full rounded-xl bg-white/[0.06] px-4 py-3 text-[13.5px] text-cream ring-1 ring-inset ring-white/10 placeholder:text-cream-muted focus:bg-white/[0.09] focus:outline-none focus:ring-white/25";
+
   return (
     <div className="mesh-deep flex min-h-screen flex-1 flex-col">
       <header className="mx-auto w-full max-w-[1400px] px-8 py-7">
@@ -36,45 +103,54 @@ export default function LoginPage() {
               hidden in the interface.
             </p>
 
-            <div className="mt-8 max-w-md space-y-2.5">
+            <form onSubmit={handleSubmit} className="mt-8 max-w-md space-y-2.5">
               <label className="block">
                 <span className="sr-only">Username</span>
                 <input
                   type="text"
+                  name="username"
+                  autoComplete="username"
+                  autoCapitalize="none"
                   placeholder="username"
-                  className="transition-calm w-full rounded-xl bg-white/[0.06] px-4 py-3 text-[13.5px] text-cream ring-1 ring-inset ring-white/10 placeholder:text-cream-muted focus:bg-white/[0.09] focus:outline-none focus:ring-white/25"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  disabled={busy}
+                  className={field}
                 />
               </label>
               <label className="block">
                 <span className="sr-only">Password</span>
                 <input
                   type="password"
+                  name="password"
+                  autoComplete="current-password"
                   placeholder="password"
-                  className="transition-calm w-full rounded-xl bg-white/[0.06] px-4 py-3 text-[13.5px] text-cream ring-1 ring-inset ring-white/10 placeholder:text-cream-muted focus:bg-white/[0.09] focus:outline-none focus:ring-white/25"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={busy}
+                  className={field}
                 />
               </label>
-            </div>
 
-            <p className="mt-7 text-[11px] font-semibold uppercase tracking-label text-sage-light">
-              Demo — continue as
-            </p>
-            <div className="mt-3 flex max-w-md flex-col gap-2.5 sm:flex-row">
-              {roles.map((role) => (
-                <Link
-                  key={role.href}
-                  href={role.href}
-                  className="transition-calm group flex-1 rounded-xl bg-cream px-4 py-3 text-forest-deep hover:bg-white"
+              {error && (
+                <p
+                  role="alert"
+                  className="flex items-start gap-2 pt-1 text-[12.5px] leading-relaxed text-[#F5928A]"
                 >
-                  <span className="flex items-center justify-between text-[13.5px] font-semibold">
-                    {role.label}
-                    <ArrowRight className="transition-calm h-4 w-4 group-hover:translate-x-0.5" />
-                  </span>
-                  <span className="mt-0.5 block text-[11.5px] text-ink-muted">
-                    {role.hint}
-                  </span>
-                </Link>
-              ))}
-            </div>
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="transition-calm mt-1 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cream px-4 py-3 text-[13.5px] font-semibold text-forest-deep hover:bg-white disabled:opacity-60"
+              >
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
 
             <p className="mt-6 flex items-center gap-2 text-[11.5px] text-cream-muted">
               <Lock className="h-3.5 w-3.5" />

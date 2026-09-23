@@ -8,6 +8,17 @@ that selects from `patients`, it raises `permission denied` rather than quietly
 returning records, which is exactly the failure mode you want.
 
 The /admin/prove endpoint below demonstrates this on demand.
+
+Two independent checks guard this file, and both are deliberate:
+
+  1. `Depends(require_role(...))` on every route — an application-level
+     identity check against the signed session cookie.
+  2. The engine each query runs on — a database-level grant that the API
+     cannot talk its way past.
+
+Removing either one leaves the other standing. That redundancy is the point:
+the first stops the wrong person asking, the second stops the wrong data being
+reachable even if the first is bypassed.
 """
 
 from __future__ import annotations
@@ -15,10 +26,11 @@ from __future__ import annotations
 from collections import defaultdict
 from statistics import mean, stdev
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
+from ..auth import require_role
 from ..db import admin_engine, clinician_engine, role_of
 from ..models import (
     AggregateRow,
@@ -31,7 +43,7 @@ from ..models import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/aggregates", response_model=list[AggregateRow])
+@router.get("/aggregates", response_model=list[AggregateRow], dependencies=[Depends(require_role("admin"))])
 def aggregates(
     district: str | None = None,
     diagnosis: str | None = None,
@@ -67,7 +79,7 @@ def aggregates(
     ]
 
 
-@router.get("/trends", response_model=list[AggregateRow])
+@router.get("/trends", response_model=list[AggregateRow], dependencies=[Depends(require_role("admin"))])
 def trends(limit: int = Query(default=100, le=1000)):
     """Totals by district and condition, shaped for the existing charts."""
     with admin_engine().connect() as conn:
@@ -84,7 +96,7 @@ def trends(limit: int = Query(default=100, le=1000)):
     ]
 
 
-@router.get("/facilities", response_model=list[FacilityActivity])
+@router.get("/facilities", response_model=list[FacilityActivity], dependencies=[Depends(require_role("admin"))])
 def facilities():
     """Which facilities are reporting, and when they last did.
 
@@ -110,7 +122,7 @@ def facilities():
     ]
 
 
-@router.get("/signals", response_model=list[TrendSignal])
+@router.get("/signals", response_model=list[TrendSignal], dependencies=[Depends(require_role("admin"))])
 def signals(
     ratio_threshold: float = Query(default=2.0, ge=1.1),
     min_current_count: int = Query(default=8, ge=5),
@@ -188,7 +200,7 @@ def signals(
     return out
 
 
-@router.get("/prove")
+@router.get("/prove", dependencies=[Depends(require_role("admin"))])
 def prove_separation():
     """Attempt to read identified records over the admin connection, and report
     what the database says.
@@ -237,7 +249,7 @@ CURVE_K = (1, 2, 3, 5, 8, 10)
 PRODUCTION_K = 5
 
 
-@router.get("/threshold-curve", response_model=ThresholdCurve)
+@router.get("/threshold-curve", response_model=ThresholdCurve, dependencies=[Depends(require_role("admin"))])
 def threshold_curve():
     """How many (district, diagnosis) groups survive at each candidate k.
 

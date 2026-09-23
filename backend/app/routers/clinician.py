@@ -2,16 +2,28 @@
 Clinician routes. Every query here runs on the clinician engine, which holds
 SELECT and INSERT on patients and visits — and deliberately not UPDATE or
 DELETE, which is why there is no edit route below and could not usefully be one.
+
+Two independent checks guard this file, and both are deliberate:
+
+  1. `Depends(require_role(...))` on every route — an application-level
+     identity check against the signed session cookie.
+  2. The engine each query runs on — a database-level grant that the API
+     cannot talk its way past.
+
+Removing either one leaves the other standing. That redundancy is the point:
+the first stops the wrong person asking, the second stops the wrong data being
+reachable even if the first is bypassed.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..audit import CHAIN_LOCK_KEY, GENESIS, canonical_time, compute_hash
+from ..auth import require_role
 from ..db import clinician_engine
 from ..models import (
     AccessLogCreate,
@@ -59,7 +71,7 @@ def _visit_from_row(row) -> Visit:
     )
 
 
-@router.get("/patients", response_model=list[Patient])
+@router.get("/patients", response_model=list[Patient], dependencies=[Depends(require_role("clinician"))])
 def list_patients(limit: int = Query(default=500, le=2000)):
     """Every patient, for the frontend store to hold in memory.
 
@@ -73,7 +85,7 @@ def list_patients(limit: int = Query(default=500, le=2000)):
     return [_patient_from_row(r) for r in rows]
 
 
-@router.get("/visits", response_model=list[Visit])
+@router.get("/visits", response_model=list[Visit], dependencies=[Depends(require_role("clinician"))])
 def list_visits(limit: int = Query(default=2000, le=5000)):
     """Every visit, newest first. Same caveat as list_patients."""
     with clinician_engine().connect() as conn:
@@ -87,7 +99,7 @@ def list_visits(limit: int = Query(default=2000, le=5000)):
     return [_visit_from_row(r) for r in rows]
 
 
-@router.get("/patients/search", response_model=list[Patient])
+@router.get("/patients/search", response_model=list[Patient], dependencies=[Depends(require_role("clinician"))])
 def search_patients(q: str = Query(min_length=1)):
     """Case-insensitive match on name, phone or id — same semantics as
     findPatientsByQuery in the frontend's clinical.ts."""
@@ -108,7 +120,7 @@ def search_patients(q: str = Query(min_length=1)):
     return [_patient_from_row(r) for r in rows]
 
 
-@router.get("/patients/{patient_id}", response_model=Patient)
+@router.get("/patients/{patient_id}", response_model=Patient, dependencies=[Depends(require_role("clinician"))])
 def get_patient(patient_id: str):
     with clinician_engine().connect() as conn:
         row = conn.execute(
@@ -119,7 +131,7 @@ def get_patient(patient_id: str):
     return _patient_from_row(row)
 
 
-@router.get("/patients/{patient_id}/visits", response_model=list[Visit])
+@router.get("/patients/{patient_id}/visits", response_model=list[Visit], dependencies=[Depends(require_role("clinician"))])
 def get_visits(patient_id: str):
     with clinician_engine().connect() as conn:
         rows = conn.execute(
@@ -132,7 +144,7 @@ def get_visits(patient_id: str):
     return [_visit_from_row(r) for r in rows]
 
 
-@router.post("/patients", response_model=Patient, status_code=201)
+@router.post("/patients", response_model=Patient, status_code=201, dependencies=[Depends(require_role("clinician"))])
 def create_patient(body: PatientCreate):
     """Assigns the next PT-#### id, matching nextPatientId in the frontend."""
     with clinician_engine().begin() as conn:
@@ -186,7 +198,7 @@ def create_patient(body: PatientCreate):
     return _patient_from_row(row)
 
 
-@router.post("/visits", response_model=Visit, status_code=201)
+@router.post("/visits", response_model=Visit, status_code=201, dependencies=[Depends(require_role("clinician"))])
 def create_visit(body: VisitCreate):
     """Append a visit.
 
@@ -258,7 +270,7 @@ def _entry_from_row(row) -> AccessLogEntry:
     )
 
 
-@router.post("/access-log", response_model=AccessLogEntry, status_code=201)
+@router.post("/access-log", response_model=AccessLogEntry, status_code=201, dependencies=[Depends(require_role("clinician"))])
 def log_access(body: AccessLogCreate):
     """Append one entry to the hash chain.
 
@@ -319,7 +331,7 @@ def log_access(body: AccessLogCreate):
     return _entry_from_row(row)
 
 
-@router.get("/access-log", response_model=list[AccessLogEntry])
+@router.get("/access-log", response_model=list[AccessLogEntry], dependencies=[Depends(require_role("clinician"))])
 def list_access_log(
     patient_id: str | None = Query(default=None),
     limit: int = Query(default=200, le=1000),
@@ -338,7 +350,7 @@ def list_access_log(
     return [_entry_from_row(r) for r in rows]
 
 
-@router.get("/access-log/verify")
+@router.get("/access-log/verify", dependencies=[Depends(require_role("clinician"))])
 def verify_chain():
     """Recompute every hash from stored fields and report the first divergence.
 

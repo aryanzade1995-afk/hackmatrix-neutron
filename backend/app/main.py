@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .db import admin_engine, clinician_engine, role_of
 from .models import Health
-from .routers import admin, clinician
+from .routers import admin, auth, clinician
 
 load_dotenv()
 
@@ -49,6 +49,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(clinician.router)
 app.include_router(admin.router)
 

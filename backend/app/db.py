@@ -1,8 +1,10 @@
 """
-Two engines, one per database role.
+Three engines, one per database role.
 
 This is the architectural centre of the project. `admin_engine` is authenticated
-as `admin_role`, which holds no grant on `patients` or `visits`. A route that
+as `admin_role`, which holds no grant on `patients` or `visits`. A third,
+`auth_engine`, can read only the `staff` table — it serves the login route,
+which is reachable before anyone has proved who they are. A route that
 tries to read an identified record over that connection fails at the database,
 loudly — not because the handler chose not to, but because the permission was
 never issued.
@@ -40,6 +42,22 @@ def clinician_engine() -> Engine:
         _require("DATABASE_URL_CLINICIAN"),
         pool_pre_ping=True,
         pool_size=5,
+    )
+
+
+@lru_cache(maxsize=1)
+def auth_engine() -> Engine:
+    """Reads `staff`, and nothing else.
+
+    A third role rather than a reuse of clinician_engine(). The login endpoint
+    is the one route an unauthenticated stranger can reach, so it runs on the
+    connection with the least to lose: SELECT on one table of usernames,
+    bcrypt hashes and roles. See db/auth.sql for the full reasoning.
+    """
+    return create_engine(
+        _require("DATABASE_URL_AUTH"),
+        pool_pre_ping=True,
+        pool_size=3,
     )
 
 
