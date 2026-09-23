@@ -77,7 +77,7 @@ function useApiList<T>(path: string): ApiState<T> {
 
     const controller = new AbortController();
 
-    fetch(`${API}${path}`, { signal: controller.signal, cache: "no-store" })
+    fetch(`${API}${path}`, { signal: controller.signal, cache: "no-store", credentials: "include" })
       .then((res) => {
         if (!res.ok) throw new Error(`${path} → ${res.status}`);
         return res.json();
@@ -236,6 +236,7 @@ export function useThresholdCurve() {
     fetch(`${API}/admin/threshold-curve`, {
       signal: controller.signal,
       cache: "no-store",
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error(`threshold-curve → ${res.status}`);
@@ -282,4 +283,76 @@ export function weeklyFrames(rows: AggregateRow[]) {
 
   const weeks = [...byWeek.keys()].sort((a, b) => a.localeCompare(b));
   return { weeks, frames: byWeek, max };
+}
+
+
+/* -------------------------------------------------------------------------
+ * Forecast
+ * ---------------------------------------------------------------------- */
+
+export type ForecastPoint = {
+  week: string;
+  actual: number | null;
+  forecast: number | null;
+  lower: number | null;
+  upper: number | null;
+};
+
+export type Forecast = {
+  points: ForecastPoint[];
+  /** Names the model that actually ran, including the fallbacks. */
+  method: string;
+  caveat: string;
+};
+
+/**
+ * A short projection of the filtered weekly series.
+ *
+ * Its own hook rather than useApiList because the endpoint returns an object.
+ * The filters are the same ones driving the chart, so the projection always
+ * describes the series on screen rather than some other one.
+ */
+export function useForecast(district?: string, diagnosis?: string) {
+  const [data, setData] = useState<Forecast | null>(null);
+  const [source, setSource] = useState<"loading" | "api" | "unavailable">(
+    API ? "loading" : "unavailable",
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const qs = new URLSearchParams();
+  if (district) qs.set("district", district);
+  if (diagnosis) qs.set("diagnosis", diagnosis);
+  const query = qs.toString();
+
+  useEffect(() => {
+    if (!API) {
+      setSource("unavailable");
+      setError("NEXT_PUBLIC_API_URL is not set");
+      return;
+    }
+    const controller = new AbortController();
+    setSource("loading");
+    fetch(`${API}/admin/forecast${query ? `?${query}` : ""}`, {
+      signal: controller.signal,
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`forecast → ${res.status}`);
+        return res.json();
+      })
+      .then((body: Forecast) => {
+        setData(body);
+        setSource("api");
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setSource("unavailable");
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => controller.abort();
+  }, [query]);
+
+  return { data, source, error };
 }

@@ -229,6 +229,25 @@ class TrendSignal(BaseModel):
     severity: Literal["watch", "alert"]
 
 
+class ForecastPoint(BaseModel):
+    """One week. Either observed or projected — never both."""
+
+    week: Date
+    actual: float | None = None
+    forecast: float | None = None
+    lower: float | None = None
+    upper: float | None = None
+
+
+class ForecastResponse(BaseModel):
+    points: list[ForecastPoint]
+    #: Names the technique that actually ran, including the fallback, so the
+    #: interface can say what it did rather than what it hoped to do.
+    method: str
+    #: Plain-language caveat, rendered with the chart.
+    caveat: str
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str

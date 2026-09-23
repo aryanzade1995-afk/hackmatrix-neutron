@@ -10,6 +10,7 @@ import {
   AGGREGATE_LIMIT,
   distinctFrom,
   useAggregates,
+  useForecast,
   useTrends,
   weeklyTotals,
 } from "@/lib/adminData";
@@ -27,6 +28,7 @@ import {
   YAxis,
 } from "recharts";
 import { StatStrip, ChangeChip } from "@/components/StatStrip";
+import { ReferenceLine as RefLine } from "recharts";
 import { movingAverage, summarise } from "@/lib/stats";
 import { Info, Loader2, Lock } from "lucide-react";
 
@@ -62,6 +64,10 @@ export default function AdminAskPage() {
    */
   const MA_WINDOW = 4;
   const stats = useMemo(() => summarise(series.map((r) => r.cases)), [series]);
+
+  // Same filters as the chart, so the projection always describes the series
+  // on screen rather than some other one.
+  const projection = useForecast(district ?? undefined, diagnosis ?? undefined);
   const plot = useMemo(() => {
     const counts = series.map((r) => r.cases);
     const ma = movingAverage(counts, MA_WINDOW);
@@ -78,6 +84,67 @@ export default function AdminAskPage() {
         Math.max(0, stats.mean + stats.sd) - Math.max(0, stats.mean - stats.sd),
     }));
   }, [series, stats]);
+
+  /**
+   * Observed weeks and projected weeks on one axis.
+   *
+   * The forecast rows carry no `normal`/`peak` value, so the bars simply stop
+   * where the data does and the dashed line carries on — which is the shape
+   * the reader should take away: measurement, then estimate.
+   */
+  type ChartRow = {
+    week: string;
+    cases: number;
+    normal: number | null;
+    peak: number | null;
+    trend: number | null;
+    bandFloor: number | null;
+    bandHeight: number | null;
+    forecast: number | null;
+    bandBase: number | null;
+    band: number | null;
+  };
+
+  const withForecast = useMemo((): ChartRow[] => {
+    const future = (projection.data?.points ?? []).filter((p) => p.forecast !== null);
+    const rows: ChartRow[] = plot.map((row) => ({
+      ...row,
+      forecast: null,
+      bandBase: null,
+      band: null,
+    }));
+    if (future.length === 0 || rows.length === 0) return rows;
+
+    // Anchor the projection on the last observed week, at its actual value
+    // and with zero width. Without this the dashed line and the interval both
+    // begin in mid-air at the following week, and the stacked area draws a
+    // wedge down to zero to get there.
+    const last = rows[rows.length - 1];
+    last.forecast = last.cases;
+    last.bandBase = last.cases;
+    last.band = 0;
+
+    return [
+      ...rows,
+      ...future.map((p): ChartRow => ({
+        week: p.week,
+        cases: 0,
+        normal: null,
+        peak: null,
+        trend: null,
+        // null, not 0 — the observed mean+/-SD band describes observed weeks
+        // only, and zeroing it draws a collapsing wedge across the boundary.
+        bandFloor: null,
+        bandHeight: null,
+        forecast: p.forecast,
+        bandBase: p.lower,
+        band: (p.upper ?? 0) - (p.lower ?? 0),
+      })),
+    ];
+  }, [plot, projection.data]);
+
+  const firstForecastWeek =
+    projection.data?.points.find((p) => p.forecast !== null)?.week ?? null;
 
   // A full page of rows means the endpoint may have cut the series short, and
   // saying "877 cases" over a truncated read would be a wrong number on a
@@ -188,7 +255,7 @@ export default function AdminAskPage() {
             {weekly.source === "api" && series.length > 0 && (
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart
-                  data={plot}
+                  data={withForecast}
                   margin={{ top: 16, right: 16, bottom: 4, left: -8 }}
                 >
                   <defs>
@@ -198,6 +265,10 @@ export default function AdminAskPage() {
                     <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.95} />
                       <stop offset="100%" stopColor={SERIES[1]} stopOpacity={0.72} />
+                    </linearGradient>
+                    <linearGradient id="fcBand" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART.axis} stopOpacity={0.24} />
+                      <stop offset="100%" stopColor={CHART.axis} stopOpacity={0.08} />
                     </linearGradient>
                     <linearGradient id="peakFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.95} />
@@ -296,6 +367,49 @@ export default function AdminAskPage() {
                     isAnimationActive={false}
                   />
 
+                  {/* Projection. Stacked pair: an invisible floor at `lower`,
+                      then the visible height up to `upper`. */}
+                  <Area
+                    dataKey="bandBase"
+                    stackId="fc"
+                    stroke="none"
+                    fill="transparent"
+                    isAnimationActive={false}
+                    activeDot={false}
+                    legendType="none"
+                  />
+                  <Area
+                    dataKey="band"
+                    stackId="fc"
+                    stroke="none"
+                    fill="url(#fcBand)"
+                    isAnimationActive={false}
+                    activeDot={false}
+                    legendType="none"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forecast"
+                    stroke={CHART.axis}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={{ r: 3, fill: CHART.axis, strokeWidth: 0 }}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                  {firstForecastWeek && (
+                    <RefLine
+                      x={firstForecastWeek}
+                      stroke={CHART.grid}
+                      label={{
+                        value: "projected",
+                        position: "insideTopRight",
+                        fill: CHART.axis,
+                        fontSize: 10.5,
+                      }}
+                    />
+                  )}
+
                   <Line
                     type="monotone"
                     dataKey="trend"
@@ -341,6 +455,15 @@ export default function AdminAskPage() {
                   />
                   mean ± 1 SD
                 </span>
+                {projection.data?.points.some((p) => p.forecast !== null) && (
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-px w-5 border-t-2 border-dashed"
+                      style={{ borderColor: CHART.axis }}
+                    />
+                    projection with interval
+                  </span>
+                )}
               </div>
 
               <StatStrip
@@ -392,6 +515,17 @@ export default function AdminAskPage() {
                   zero would invent counts nobody measured.
                 </p>
               </div>
+
+              {projection.source === "api" && projection.data && (
+                <div className="border-t border-border px-7 py-4">
+                  <p className="text-[11.5px] leading-relaxed text-ink-faint">
+                    <span className="font-semibold text-ink-muted">
+                      Projection, not a certainty.
+                    </span>{" "}
+                    {projection.data.method}. {projection.data.caveat}
+                  </p>
+                </div>
+              )}
             </>
           )}
         </Card>

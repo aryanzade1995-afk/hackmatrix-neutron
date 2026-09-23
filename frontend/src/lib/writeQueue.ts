@@ -85,6 +85,7 @@ export async function flushQueue(api: string): Promise<FlushResult> {
     try {
       const res = await fetch(`${api}${path}`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(item.payload),
       });

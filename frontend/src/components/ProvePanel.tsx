@@ -108,7 +108,7 @@ export function ProvePanel() {
     }
 
     try {
-      const res = await fetch(`${API}/admin/prove`, { cache: "no-store" });
+      const res = await fetch(`${API}/admin/prove`, { cache: "no-store", credentials: "include" });
       if (!res.ok) throw new Error(`/admin/prove → ${res.status}`);
       const body = (await res.json()) as ProveResponse;
       const next = toLines(body);

@@ -53,7 +53,7 @@ export function TrustDial() {
     }
     setState("loading");
     try {
-      const res = await fetch(`${API}/admin/prove`, { signal, cache: "no-store" });
+      const res = await fetch(`${API}/admin/prove`, { signal, cache: "no-store", credentials: "include" });
       if (!res.ok) throw new Error(`/admin/prove → ${res.status}`);
       const body = (await res.json()) as ProveResponse;
 

@@ -42,6 +42,7 @@ export async function recordAccess(entry: {
   try {
     const res = await fetch(`${API}/clinician/access-log`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outcome: "granted", ...entry }),
     });
@@ -67,7 +68,7 @@ export function useAccessLog(patientId?: string) {
     }
     try {
       const qs = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : "";
-      const res = await fetch(`${API}/clinician/access-log${qs}`, { cache: "no-store" });
+      const res = await fetch(`${API}/clinician/access-log${qs}`, { cache: "no-store", credentials: "include" });
       if (!res.ok) throw new Error(`access-log → ${res.status}`);
       setEntries((await res.json()) as AccessLogEntry[]);
       setSource("api");
@@ -88,7 +89,7 @@ export function useAccessLog(patientId?: string) {
 export async function verifyChain(): Promise<VerifyResult | null> {
   if (!API) return null;
   try {
-    const res = await fetch(`${API}/clinician/access-log/verify`, { cache: "no-store" });
+    const res = await fetch(`${API}/clinician/access-log/verify`, { cache: "no-store", credentials: "include" });
     if (!res.ok) return null;
     return (await res.json()) as VerifyResult;
   } catch {

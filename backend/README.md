@@ -129,13 +129,14 @@ cd backend
 python3 -m pytest tests/ -q
 ```
 
-32 tests, about seven seconds. Three files, three different claims:
+40 tests, about nine seconds. Four files, four different claims:
 
 | File | Asserts |
 |---|---|
 | `test_role_separation.py` | Postgres refuses the reads and writes the grants do not allow |
 | `test_suppression.py` | No group below k=5 reaches the administrator's views |
 | `test_auth.py` | Routes refuse callers who have not proved who they are, or proved the wrong thing |
+| `test_detection.py` | The anomaly detector flags what it should and ignores what it should not |
 
 ### These run against the development database
 
@@ -178,4 +179,11 @@ proving nothing. If you add tests here, assert what the failure actually says.
 Similarly, `test_suppression_actually_suppresses_something` exists to stop the
 other two suppression tests passing vacuously: if no group in the seed data
 fell below the threshold, a view with no filter at all would satisfy them.
+
+`test_detection.py` is pure-function and needs no database. Its first test,
+`test_terminal_spike_is_detected`, guards a bug that shipped in a first draft
+and passed every other check: fitting STL across the whole series and reading
+the last residual absorbs a terminal spike into the trend, so a fivefold
+outbreak scored as perfectly ordinary — silently, with no error. The failure
+mode of a broken detector is silence, which is why it gets its own tests.
 

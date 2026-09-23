@@ -55,7 +55,7 @@ type Store = {
 const StoreContext = createContext<Store | null>(null);
 
 async function getJson<T>(path: string, signal: AbortSignal): Promise<T> {
-  const res = await fetch(`${API}${path}`, { signal, cache: "no-store" });
+  const res = await fetch(`${API}${path}`, { signal, cache: "no-store", credentials: "include" });
   if (!res.ok) throw new Error(`${path} returned ${res.status}`);
   return (await res.json()) as T;
 }
@@ -135,6 +135,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!API) return;
 
     void fetch(`${API}/clinician/patients`, {
+      credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
@@ -164,6 +165,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!API) return;
 
     void fetch(`${API}/clinician/visits`, {
+      credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(v),
