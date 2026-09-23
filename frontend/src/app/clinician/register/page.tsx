@@ -79,20 +79,6 @@ export default function RegisterPage() {
     if (!facility) next.facility = "Select the registering facility";
     if (!district) next.district = "Select a district";
 
-    // Optional overall — but a number that is present has to be usable, because
-    // its only job is WhatsApp delivery and Twilio needs the international form.
-    // Spaces, dashes and brackets are fine; the server strips them.
-    const typedPhone = phone.trim();
-    if (typedPhone) {
-      const digits = typedPhone.replace(/[\s\-()./]/g, "");
-      if (!digits.startsWith("+")) {
-        next.phone =
-          "Include the country code, starting with + — for example +91 98765 43210";
-      } else if (!/^\+[1-9]\d{7,14}$/.test(digits)) {
-        next.phone = "That does not look like a complete international number";
-      }
-    }
-
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
@@ -157,7 +143,6 @@ export default function RegisterPage() {
             <PatientQrPanel
               patientId={created.id}
               patientName={created.name}
-              patientPhone={created.phone}
               className="mt-6"
             />
 
@@ -221,15 +206,11 @@ export default function RegisterPage() {
                 </select>
               </Field>
 
-              <Field
-                label="Phone number"
-                hint="optional — needed to send the QR by WhatsApp"
-                error={errors.phone}
-              >
+              <Field label="Phone number" hint="optional">
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
+                  placeholder="+91 …"
                   inputMode="tel"
                   className={`${fieldClass} nums`}
                 />

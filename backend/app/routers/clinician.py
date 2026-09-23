@@ -9,17 +9,10 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
 from sqlalchemy import text
 
 from ..audit import CHAIN_LOCK_KEY, GENESIS, canonical_time, compute_hash
 from ..db import clinician_engine
-from ..whatsapp import (
-    WhatsAppError,
-    normalise_phone,
-    render_qr_png,
-    send_qr,
-)
 from ..models import (
     AccessLogCreate,
     AccessLogEntry,
@@ -124,73 +117,6 @@ def get_patient(patient_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="No patient with that id")
     return _patient_from_row(row)
-
-
-def _require_patient(patient_id: str):
-    with clinician_engine().connect() as conn:
-        row = conn.execute(
-            text("SELECT * FROM patients WHERE id = :id"), {"id": patient_id}
-        ).one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="No patient with that id")
-    return row
-
-
-@router.get(
-    "/patients/{patient_id}/qr.png",
-    responses={200: {"content": {"image/png": {}}}},
-    response_class=Response,
-)
-def patient_qr_png(patient_id: str):
-    """The patient's QR as a PNG.
-
-    Exists because Twilio fetches media over HTTP rather than accepting an
-    upload; the browser still draws its own copy for download and print. The
-    payload is identical either way — the patient id, nothing clinical.
-
-    The patient is looked up first so this 404s on an unknown id rather than
-    cheerfully encoding whatever string was in the URL.
-    """
-    _require_patient(patient_id)
-    try:
-        png = render_qr_png(patient_id)
-    except WhatsAppError as exc:
-        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
-
-    return Response(
-        content=png,
-        media_type="image/png",
-        headers={
-            # Twilio may fetch this more than once per send, and the content is
-            # a pure function of the id, so it is safe to cache. Not public:
-            # an id is not a secret, but it is not billboard material either.
-            "Cache-Control": "private, max-age=300",
-            "Content-Disposition": f'inline; filename="{patient_id}-qr.png"',
-        },
-    )
-
-
-@router.post("/patients/{patient_id}/send-qr")
-def patient_send_qr(patient_id: str):
-    """Send the QR to the patient over WhatsApp.
-
-    Every failure path returns the real reason. The sandbox opt-in case in
-    particular gets its own message, because it is the one that will bite
-    during a demo and it looks exactly like a credentials problem if the error
-    is generic.
-    """
-    row = _require_patient(patient_id)
-
-    try:
-        phone = normalise_phone(row.phone)
-        result = send_qr(patient_id, phone)
-    except WhatsAppError as exc:
-        raise HTTPException(
-            status_code=exc.status,
-            detail={"message": exc.message, "twilioCode": exc.code},
-        ) from exc
-
-    return result
 
 
 @router.get("/patients/{patient_id}/visits", response_model=list[Visit])

@@ -128,7 +128,6 @@ export default function FindPatientPage() {
             <PatientQrPanel
               patientId={reissueFor.id}
               patientName={reissueFor.name}
-              patientPhone={reissueFor.phone}
               className="mt-5"
             />
           </div>

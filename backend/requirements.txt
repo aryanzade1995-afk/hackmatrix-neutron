@@ -4,9 +4,3 @@ sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 pydantic==2.10.4
 python-dotenv==1.0.1
-
-# WhatsApp delivery of the patient QR. Both are only needed for that one
-# feature — every other route works without them, and the send route fails
-# with a clear message rather than at import time if they are missing.
-twilio==9.4.1
-qrcode[pil]==8.0
