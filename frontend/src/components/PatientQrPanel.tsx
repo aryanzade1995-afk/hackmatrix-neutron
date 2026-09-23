@@ -14,6 +14,17 @@ import {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 /**
+ * WhatsApp delivery is opt-in and off by default.
+ *
+ * Not because the code is unfinished — the route, the validation and every
+ * error path are built and tested — but because a Twilio *trial* account
+ * cannot send media or free-form WhatsApp messages at all. Until the account
+ * is upgraded, showing the button would mean offering a control that fails
+ * when pressed. Hidden beats shown-and-broken.
+ */
+const WHATSAPP_ENABLED = process.env.NEXT_PUBLIC_WHATSAPP_ENABLED === "true";
+
+/**
  * The patient's QR, shared by registration and QR recovery.
  *
  * The code encodes only the patient id — nothing clinical. Losing it is not a
@@ -157,6 +168,7 @@ export function PatientQrPanel({
               Print card
             </button>
 
+            {WHATSAPP_ENABLED && (
             <button
               type="button"
               onClick={sendToWhatsApp}
@@ -175,9 +187,10 @@ export function PatientQrPanel({
               )}
               {send.source === "sending" ? "Sending…" : "Send to WhatsApp"}
             </button>
+            )}
           </div>
 
-          {!hasPhone && (
+          {WHATSAPP_ENABLED && !hasPhone && (
             <p className="mt-2.5 text-[11.5px] leading-relaxed text-ink-faint print:hidden">
               WhatsApp delivery needs a phone number on record. This patient has
               none, so download or print the card instead.

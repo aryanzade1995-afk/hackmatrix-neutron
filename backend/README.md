@@ -124,6 +124,50 @@ changes in any page.
 
 ## WhatsApp delivery of the patient QR
 
+**Status: built and tested, but OFF — a Twilio trial account cannot send it.**
+
+Turned off in the frontend via `NEXT_PUBLIC_WHATSAPP_ENABLED=false`. Set it to
+`true` once the Twilio account is upgraded; nothing else needs changing.
+
+### What a trial account refuses
+
+Tested against a live trial account on 23 Sep 2026. Every outbound path is
+blocked, and none of it is a code problem:
+
+| Attempt | Twilio's response |
+|---|---|
+| `media_url` (the QR image), any sender | *"trial accounts have limited parameter access"* |
+| Plain `body`, trial sender `+1 737 250 8034` | `21654` — *"ContentSid Required"* |
+| Plain `body`, classic sandbox `+1 415 523 8886` | `21654` — *"ContentSid Required"* |
+| Listing Content templates via API | `20003` — *"not available on a Trial account"* |
+
+So: no media, no free-form text, and no API access to the templates that would
+be the only remaining route. The Console's "Try out WhatsApp" panel works only
+because it uses Twilio's own built-in templates, which cannot carry our image.
+
+Everything up to Twilio was verified working: credentials authenticate
+(`account status=active`), the phone was opted in (join reply read), the QR was
+publicly fetchable over a Cloudflare tunnel (`HTTP/2 200`, `image/png`). The
+refusal is account-tier, not implementation.
+
+**Upgrading the Twilio account is the only fix.** After that, set
+`NEXT_PUBLIC_WHATSAPP_ENABLED=true`, fill `PUBLIC_BASE_URL`, and it works as
+built.
+
+### Sender number
+
+Do not assume the classic sandbox `+14155238886`. Newer accounts get their own
+trial sender — this one is `+17372508034`. Check the `From` dropdown in the
+Console, or read `from_` off your own join reply:
+
+```python
+client.messages.list(limit=1)[0].from_
+```
+
+---
+
+Original setup notes follow, for when the account is upgraded.
+
 Optional. Everything else runs without it; only the **Send to WhatsApp** button
 on the QR panel needs the setup below.
 
