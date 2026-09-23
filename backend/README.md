@@ -121,3 +121,61 @@ changes in any page.
 - **The audit log** is still frontend mock data, not a table.
 - **Rate limiting and query budgets.** A threshold on single queries does not
   stop someone differencing overlapping aggregates over time.
+
+## Testing
+
+```
+cd backend
+python3 -m pytest tests/ -q
+```
+
+32 tests, about seven seconds. Three files, three different claims:
+
+| File | Asserts |
+|---|---|
+| `test_role_separation.py` | Postgres refuses the reads and writes the grants do not allow |
+| `test_suppression.py` | No group below k=5 reaches the administrator's views |
+| `test_auth.py` | Routes refuse callers who have not proved who they are, or proved the wrong thing |
+
+### These run against the development database
+
+Not a throwaway one, and that is deliberate. The thing under test *is* the
+Postgres grant. A mock, or a SQLite stand-in, would assert nothing — worse
+than no test, because it would look like proof.
+
+Two safeguards make that acceptable:
+
+- **Nothing writes to an application table.** The only rows created are two
+  temporary `staff` accounts with uuid-suffixed usernames, removed in fixture
+  teardown — which runs even when tests fail. The suppression tests read only.
+- **A guard refuses to run** unless the target database is named `hackmatrix`.
+  Point `DATABASE_URL_CLINICIAN` anywhere else and the suite exits before
+  collecting a single test.
+
+To confirm the database is untouched afterwards:
+
+```
+psql "$SUPER" -c "SELECT count(*) FROM staff WHERE username LIKE 'pytest.%';"
+```
+
+That should be `0`.
+
+### Requirements
+
+The tests need a seeded database — run `db/dev-db.sh reseed` first if
+`test_suppression.py` reports that a view returned nothing. They also need
+`db/auth.sql` applied and `AUTH_SECRET_KEY` set in `.env`, or the auth tests
+cannot mint a session.
+
+### One thing worth knowing about these tests
+
+`test_clinician_cannot_modify_visits` asserts on the *error message*, not just
+the exception type. Its first version used `WHERE id = -1`, which raised
+`ProgrammingError` — but because `visits.id` is TEXT and Postgres rejected the
+comparison before it ever considered the privilege. The test passed while
+proving nothing. If you add tests here, assert what the failure actually says.
+
+Similarly, `test_suppression_actually_suppresses_something` exists to stop the
+other two suppression tests passing vacuously: if no group in the seed data
+fell below the threshold, a view with no filter at all would satisfy them.
+

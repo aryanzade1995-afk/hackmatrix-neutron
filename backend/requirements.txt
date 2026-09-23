@@ -8,3 +8,7 @@ python-dotenv==1.0.1
 # Authentication. bcrypt for password hashing, PyJWT for the session cookie.
 bcrypt==5.0.0
 pyjwt==2.7.0
+
+# Tests. See the Testing section of backend/README.md.
+pytest==8.3.4
+httpx==0.28.1
