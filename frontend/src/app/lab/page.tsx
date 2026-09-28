@@ -101,7 +101,7 @@ function Sample({ variant }: { variant: Variant }) {
         style={variant.style}
       >
         <span className="font-serif text-[13px] font-semibold text-cream">
-          Hackmatrix
+          SwasthyaLink
         </span>
         <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] text-cream">
           Overview

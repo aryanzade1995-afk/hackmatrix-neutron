@@ -38,7 +38,7 @@ export default function Home({
         <div className="flex items-center gap-2.5">
           <Mark className="h-[22px] w-[22px] text-sage-light" />
           <span className="font-serif text-[17px] font-semibold tracking-tight text-cream">
-            Hackmatrix
+            SwasthyaLink
           </span>
         </div>
       </header>

@@ -16,7 +16,7 @@ const publicSans = Public_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Hackmatrix",
+  title: "SwasthyaLink",
   description: "Unified clinical records and privacy-safe public health reporting.",
 };
 

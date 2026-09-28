@@ -71,7 +71,7 @@ function SummaryView({ patient }: { patient: Patient }) {
           <div className="flex items-center gap-2.5 border-b border-border pb-6">
             <Mark className="h-5 w-5 text-forest" />
             <span className="font-serif text-[15px] font-semibold tracking-tight text-forest-deep">
-              Hackmatrix
+              SwasthyaLink
             </span>
             <span className="ml-auto nums text-[12px] text-ink-faint">
               {patient.id} · {ageFromDob(patient.dob)} yrs

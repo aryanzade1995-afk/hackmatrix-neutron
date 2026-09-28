@@ -15,7 +15,7 @@ function LoginMock({ art }: { art: React.ReactNode }) {
           <div className="flex items-center gap-2.5">
             <Mark className="h-[18px] w-[18px] text-sage-light" />
             <span className="font-serif text-[14px] font-semibold text-cream">
-              Hackmatrix
+              SwasthyaLink
             </span>
           </div>
           <h3 className="text-display mt-7 text-[24px] text-cream">Sign in</h3>
