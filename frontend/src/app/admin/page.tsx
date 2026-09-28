@@ -40,7 +40,6 @@ import {
 } from "lucide-react";
 import { CountUp, useAgeLabel } from "@/components/CountUp";
 import { ChangeChip, StatStrip } from "@/components/StatStrip";
-import { ProvePanel } from "@/components/ProvePanel";
 import { SoundToggle } from "@/components/SoundToggle";
 import { TrustDial } from "@/components/TrustDial";
 
@@ -187,10 +186,6 @@ export default function AdminPage() {
             </p>
           </div>
         ))}
-      </div>
-
-      <div className="mb-6">
-        <ProvePanel />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)]">
