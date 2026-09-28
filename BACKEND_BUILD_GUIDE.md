@@ -1,4 +1,4 @@
-# Hackmatrix — Phase 2 Build Guide: Backend, Real Roles, Real QR, Real AI
+# SwasthyaLink — Phase 2 Build Guide: Backend, Real Roles, Real QR, Real AI
 
 ## 0. Where this picks up
 

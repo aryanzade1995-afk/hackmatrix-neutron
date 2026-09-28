@@ -1,4 +1,4 @@
-# Hackmatrix — HLTH-01
+# SwasthyaLink — HLTH-01
 
 A health records system with two strictly separated ways in. A **clinician** opens one
 patient's complete history behind a QR consent token. An **administrator** sees only

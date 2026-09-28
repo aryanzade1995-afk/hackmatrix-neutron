@@ -1,4 +1,4 @@
-# Hackmatrix — Phase 3: Differentiators
+# SwasthyaLink — Phase 3: Differentiators
 
 Five features, in build order. Each closes a specific gap: the first because your
 admin side isn't actually wired to the database you built in Phase 2, the next
