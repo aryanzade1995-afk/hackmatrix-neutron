@@ -17,8 +17,10 @@ from __future__ import annotations
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 from .db import admin_engine, clinician_engine, role_of
 from .models import Health
@@ -48,6 +50,19 @@ app.add_middleware(
     allow_methods=["GET", "POST"],  # no PUT/PATCH/DELETE — records are append-only
     allow_headers=["*"],
 )
+
+@app.exception_handler(IntegrityError)
+def integrity_conflict(_request: Request, exc: IntegrityError):
+    """A constraint the database enforced — a duplicate id, a missing parent.
+
+    Returned as a JSON 409 rather than left as an unhandled 500. An unhandled
+    error is answered outside the CORS middleware, so the browser sees no
+    response at all, the offline queue reads that as "no connection", and it
+    retries the same write forever with everything queued behind it stuck.
+    """
+    detail = str(exc.orig).strip().splitlines()[0] if exc.orig else "Conflict"
+    return JSONResponse(status_code=409, content={"detail": detail})
+
 
 app.include_router(auth.router)
 app.include_router(clinician.router)

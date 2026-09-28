@@ -162,8 +162,14 @@ AccessOutcome = Literal["granted", "denied"]
 
 
 class AccessLogCreate(BaseModel):
+    """Body for POST /clinician/access-log.
+
+    There is deliberately no `actor` here. Who accessed a record is taken from
+    the signed session on the server, never from the request body — an audit
+    trail whose names the client chooses records whatever it is told.
+    """
+
     patientId: str | None = None
-    actor: str
     action: AccessAction
     outcome: AccessOutcome = "granted"
     reason: str | None = None

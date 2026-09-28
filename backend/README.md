@@ -50,12 +50,12 @@ Accounts are created out of band with `db/seed_staff.py`; there is no sign-up ro
 
 | | |
 |---|---|
-| `GET /clinician/patients/{id}` | One patient |
+| `GET /clinician/patients/{id}` | One patient — what a QR scan resolves against. Case-insensitive and trimmed; `404` for an unknown code |
 | `GET /clinician/patients/search?q=` | Name, phone or id; same semantics as `findPatientsByQuery` |
 | `GET /clinician/patients/{id}/visits` | Visits, newest first |
-| `POST /clinician/patients` | Server assigns the next `PT-####` |
-| `POST /clinician/visits` | Appends; server assigns id and display date |
-| `POST /clinician/access-log` | Appends one hash-chained entry; a reason is required for `emergency_access` |
+| `POST /clinician/patients` | Honours a free client-proposed id, otherwise assigns the next `PT-####`. The same registration sent twice returns the existing row (`200`); an id held by a different person is `409`, and the client re-registers to get a new one |
+| `POST /clinician/visits` | Appends; server assigns id and display date. A replayed visit id returns the existing row (`200`); the same id on another patient is `409` |
+| `POST /clinician/access-log` | Appends one hash-chained entry. The actor is the signed-in user from the session, never the request body. A reason is required for `emergency_access`; an unknown patient is `404` |
 | `GET /clinician/access-log` | The trail, newest first |
 | `GET /clinician/access-log/verify` | Recomputes every hash and reports the first break |
 

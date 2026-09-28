@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import text
 
 from ..audit import CHAIN_LOCK_KEY, GENESIS, canonical_time, compute_hash
@@ -122,9 +122,15 @@ def search_patients(q: str = Query(min_length=1)):
 
 @router.get("/patients/{patient_id}", response_model=Patient, dependencies=[Depends(require_role("clinician"))])
 def get_patient(patient_id: str):
+    """One patient, by id. This is what a QR scan resolves against.
+
+    Matched case-insensitively and trimmed, so a code read as "pt-2291 " still
+    finds PT-2291; the response carries the canonical id.
+    """
     with clinician_engine().connect() as conn:
         row = conn.execute(
-            text("SELECT * FROM patients WHERE id = :id"), {"id": patient_id}
+            text("SELECT * FROM patients WHERE upper(id) = upper(:id)"),
+            {"id": patient_id.strip()},
         ).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="No patient with that id")
@@ -145,26 +151,50 @@ def get_visits(patient_id: str):
 
 
 @router.post("/patients", response_model=Patient, status_code=201, dependencies=[Depends(require_role("clinician"))])
-def create_patient(body: PatientCreate):
-    """Assigns the next PT-#### id, matching nextPatientId in the frontend."""
+def create_patient(body: PatientCreate, response: Response):
+    """Assigns the next PT-#### id, matching nextPatientId in the frontend.
+
+    A client-supplied id is honoured when it is free. When it is already
+    taken there are two very different cases, and they must not be confused:
+
+      * the same registration sent again (an offline replay whose first
+        attempt did land) — the existing row is returned with 200, so the
+        retry is harmless;
+      * a different person already holds that id — 409. The client must then
+        ask again without an id and use the one assigned here, because a QR
+        printed with the taken id would open somebody else's record.
+    """
     with clinician_engine().begin() as conn:
+        # Serialise registrations, so two at once cannot both read the same
+        # highest id, or both pass the "is this id free" check and then fail
+        # on the primary key.
+        conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('hackmatrix_patient_ids'))"))
+
         if body.id:
-            # The registration screen prints a QR encoding the id it generated,
-            # so honour it rather than assigning a different one behind the
-            # printed code.
-            taken = conn.execute(
-                text("SELECT 1 FROM patients WHERE id = :id"), {"id": body.id}
+            existing = conn.execute(
+                text("SELECT * FROM patients WHERE upper(id) = upper(:id)"), {"id": body.id}
             ).one_or_none()
-            if taken:
+            if existing is not None:
+                same_person = (
+                    existing.name == body.name
+                    and existing.dob == body.dob
+                    and existing.gender == body.gender
+                    and existing.facility == body.facility
+                )
+                if same_person:
+                    response.status_code = 200
+                    return _patient_from_row(existing)
                 raise HTTPException(
                     status_code=409, detail=f"Patient id {body.id} already exists"
                 )
             new_id = body.id
         else:
+            # Only well-formed PT-<digits> ids count. Digits pulled out of
+            # anything else (PT-SPIKE-12, say) must not set the next number.
             highest = conn.execute(
                 text(
-                    "SELECT COALESCE(MAX(NULLIF(regexp_replace(id,'\\D','','g'),'')::int), 0) "
-                    "FROM patients WHERE id LIKE 'PT-%'"
+                    "SELECT COALESCE(MAX(substring(id FROM 4)::int), 0) "
+                    "FROM patients WHERE id ~ '^PT-[0-9]+$'"
                 )
             ).scalar_one()
             new_id = f"PT-{int(highest) + 1}"
@@ -199,12 +229,18 @@ def create_patient(body: PatientCreate):
 
 
 @router.post("/visits", response_model=Visit, status_code=201, dependencies=[Depends(require_role("clinician"))])
-def create_visit(body: VisitCreate):
+def create_visit(body: VisitCreate, response: Response):
     """Append a visit.
 
     There is no PUT, PATCH or DELETE counterpart, and there never should be:
     a correction is a new row carrying `supersedes`, and the clinician role
     holds no UPDATE grant to do otherwise.
+
+    Replay-safe: an id that already exists for the same patient is the
+    offline queue resending a write whose first attempt landed, so the
+    existing row comes back with 200. The same id on another patient is a 409.
+    Without this, the replay failed on the primary key as a 500 and blocked
+    everything queued behind it.
     """
     visit_date = body.date or date.today()
     visit_id = body.id or f"v-{visit_date.isoformat()}-{body.patientId}-{_suffix()}"
@@ -216,6 +252,17 @@ def create_visit(body: VisitCreate):
         ).one_or_none()
         if exists is None:
             raise HTTPException(status_code=404, detail="No patient with that id")
+
+        prior = conn.execute(
+            text("SELECT * FROM visits WHERE id = :id"), {"id": visit_id}
+        ).one_or_none()
+        if prior is not None:
+            if prior.patient_id != body.patientId:
+                raise HTTPException(
+                    status_code=409, detail=f"Visit id {visit_id} already exists"
+                )
+            response.status_code = 200
+            return _visit_from_row(prior)
 
         conn.execute(
             text(
@@ -270,20 +317,35 @@ def _entry_from_row(row) -> AccessLogEntry:
     )
 
 
-@router.post("/access-log", response_model=AccessLogEntry, status_code=201, dependencies=[Depends(require_role("clinician"))])
-def log_access(body: AccessLogCreate):
+@router.post("/access-log", response_model=AccessLogEntry, status_code=201)
+def log_access(
+    body: AccessLogCreate,
+    session: dict = Depends(require_role("clinician")),
+):
     """Append one entry to the hash chain.
 
     Insert-only, like `visits` — and the clinician role holds no UPDATE grant
     on this table either, so an audit trail that could be quietly rewritten is
     not merely discouraged, it is unavailable.
+
+    The actor is the signed-in username from the session cookie. Any `actor`
+    field a client sends is ignored.
     """
     if body.action == "emergency_access" and not (body.reason and body.reason.strip()):
         raise HTTPException(
             status_code=422, detail="A reason is required for emergency access"
         )
+    actor = session["sub"]
 
     with clinician_engine().begin() as conn:
+        # An unknown id would otherwise fail on the foreign key as a 500.
+        if body.patientId is not None:
+            exists = conn.execute(
+                text("SELECT 1 FROM patients WHERE id = :id"), {"id": body.patientId}
+            ).one_or_none()
+            if exists is None:
+                raise HTTPException(status_code=404, detail="No patient with that id")
+
         # Serialise appenders so two writers cannot read the same chain tail.
         conn.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
@@ -299,7 +361,7 @@ def log_access(body: AccessLogCreate):
         new_hash = compute_hash(
             prev_hash,
             body.patientId,
-            body.actor,
+            actor,
             body.action,
             body.outcome,
             body.reason,
@@ -318,7 +380,7 @@ def log_access(body: AccessLogCreate):
             ),
             {
                 "patient_id": body.patientId,
-                "actor": body.actor,
+                "actor": actor,
                 "action": body.action,
                 "outcome": body.outcome,
                 "reason": body.reason,
