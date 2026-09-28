@@ -36,6 +36,16 @@ The database must exist first — see `db/README.md`.
 { "status": "ok", "clinicianRole": "clinician_role", "adminRole": "admin_role" }
 ```
 
+### Auth — runs on the auth engine, which can read `staff` and nothing else
+
+| | |
+|---|---|
+| `POST /auth/login` | Checks the bcrypt hash, sets a signed HttpOnly session cookie, returns the role |
+| `GET /auth/me` | The signed-in user and role, or `401` |
+| `POST /auth/logout` | Clears the session cookie |
+
+Accounts are created out of band with `db/seed_staff.py`; there is no sign-up route.
+
 ### Clinician — runs on the clinician engine
 
 | | |
@@ -115,10 +125,6 @@ changes in any page.
 
 ## Not built
 
-- **Authentication.** `/login` is a cosmetic role picker. The *data* separation
-  is real and provable; deciding which role a human gets is not built. Say so in
-  the demo rather than letting a judge find it.
-- **The audit log** is still frontend mock data, not a table.
 - **Rate limiting and query budgets.** A threshold on single queries does not
   stop someone differencing overlapping aggregates over time.
 

@@ -41,13 +41,10 @@ never granted `SELECT` on that table. See [`db/README.md`](db/README.md).
 | **Patient-facing plain-language summary** | **Built — printable** |
 | **Overdue follow-up detection** | **Built — attendance only** |
 | **Offline write queue** | **Built — survives reload, replays on reconnect** |
-| Authentication (login, sessions) | **Not built** — see below |
+| **Authentication (login, sessions)** | **Built — bcrypt, signed HttpOnly cookie, role from the server** |
 
 ### What is honestly not finished
 
-- **Authentication.** `/login` is a cosmetic role picker. The *data* separation is real and
-  provable; deciding which role a given human gets is still ahead. This is worth stating
-  plainly rather than letting it be discovered.
 - **Live camera decoding** has not been tested on hardware with a camera. Decoding from a
   QR *image* has been verified end to end, including the routing that follows.
 - **Re-identification by differencing** overlapping aggregate queries is not defended
@@ -137,6 +134,7 @@ rebuilds in seconds. For demo day, use a hosted Postgres instead and follow
 ```bash
 # 1. Database — hosted; see db/README.md for generating the role passwords
 psql "$SUPERUSER_URL" -v clinician_pw="'…'" -v admin_pw="'…'" -f db/schema.sql
+psql "$SUPERUSER_URL" -v auth_pw="'…'" -f db/auth.sql   # staff table + login-only role
 psql "$SUPERUSER_URL" -f db/seed.sql
 psql "$SUPERUSER_URL" -f db/bulk.sql
 psql "$SUPERUSER_URL" -f db/spike.sql   # the demo outbreak; /admin/signals is empty without it
@@ -144,7 +142,8 @@ psql "$SUPERUSER_URL" -f db/spike.sql   # the demo outbreak; /admin/signals is e
 # 2. API
 cd backend
 pip install -r requirements.txt
-cp .env.example .env        # fill in both connection strings
+cp .env.example .env        # fill in the connection strings and AUTH_SECRET_KEY
+python ../db/seed_staff.py  # creates the two staff logins; prompts for passwords
 uvicorn app.main:app --reload --port 8000
 
 # 3. Frontend
@@ -163,7 +162,7 @@ npm run dev
 
 | Route | What it does |
 | --- | --- |
-| `/clinician/scan` | Camera or image QR scan, break-glass access, plus simulated paths |
+| `/clinician/scan` | Camera or image QR scan, and break-glass access |
 | `/clinician/register` | One-time registration, issues the patient's QR |
 | `/clinician/find` | Search by name, phone or id; reissue a lost QR |
 | `/clinician` | The record: generated summary, allergy conflicts, timeline, vitals trends |
