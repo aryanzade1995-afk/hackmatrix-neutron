@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
@@ -9,6 +9,7 @@ import { Chip } from "@/components/Chip";
 import { DoseBuilder } from "@/components/DoseBuilder";
 import { RxBadge, RxLine } from "@/components/RxLine";
 import { PatientContextBar } from "@/components/PatientContextBar";
+import { VoiceEntry } from "@/components/VoiceEntry";
 import { useStore } from "@/lib/store";
 import {
   ageFromDob,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/demo-data";
 import { formularyFor, type MedicineCategory, type MedicineOption } from "@/lib/formulary";
 import { formatRxLine, type Prescription } from "@/lib/prescribing";
+import { fieldsFromDraft, type VoiceDraft } from "@/lib/voiceScenarios";
 import {
   Activity,
   ArrowLeft,
@@ -41,9 +43,11 @@ import {
   CircleDot,
   Droplets,
   Hand,
+  Mic,
   PersonStanding,
   Plus,
   Search,
+  Sparkles,
   Stethoscope,
   Thermometer,
   TriangleAlert,
@@ -120,6 +124,9 @@ function NewVisitFlow() {
     hba1c: "",
   });
   const [notes, setNotes] = useState("");
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceRecordings, setVoiceRecordings] = useState(0);
+  const [voiceApplied, setVoiceApplied] = useState(false);
 
   const isChild = ageFromDob(patient.dob) < 12;
   const complaints = useMemo(
@@ -219,6 +226,38 @@ function NewVisitFlow() {
     setCustomDose("");
   }
 
+  /**
+   * Voice entry fills the same state the manual steps do, then opens Review
+   * with vitals and notes showing. Medicines already chosen by hand are kept;
+   * dictated ones are added alongside them. Saving is unchanged.
+   */
+  function applyVoiceDraft(draft: VoiceDraft) {
+    const f = fieldsFromDraft(draft);
+    if (f.complaintId) {
+      setComplaintId(f.complaintId);
+      setAnswers(f.answers);
+    }
+    if (f.diagnosis) setDiagnosis(f.diagnosis);
+    setPrescriptions((prev) => [
+      ...prev,
+      ...f.prescriptions.filter((p) => !prev.some((m) => m.drug === p.drug)),
+    ]);
+    setVitals((prev) => ({
+      ...prev,
+      systolic: f.vitals.systolic || prev.systolic,
+      diastolic: f.vitals.diastolic || prev.diastolic,
+      heartRate: f.vitals.heartRate || prev.heartRate,
+    }));
+    if (f.notes) setNotes((prev) => [prev.trim(), f.notes].filter(Boolean).join("\n"));
+    setDetailOpen(true);
+    setStep(4);
+    setVoiceOpen(false);
+    setVoiceApplied(true);
+  }
+
+  const closeVoice = useCallback(() => setVoiceOpen(false), []);
+  const countRecording = useCallback(() => setVoiceRecordings((n) => n + 1), []);
+
   function save() {
     const today = new Date();
     const anyVital = Object.values(vitals).some((v) => v.trim() !== "");
@@ -263,32 +302,72 @@ function NewVisitFlow() {
     <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
       <PatientContextBar patient={patient} className="mb-6" />
 
-      {/* Step indicator */}
-      <ol className="mb-6 flex flex-wrap items-center gap-x-7 gap-y-2">
-        {STEPS.map((s, i) => {
-          const index = i + 1;
-          const done = index < step;
-          const active = index === step;
-          return (
-            <li key={s.n} className="flex items-center gap-2">
-              <span
-                className={`nums text-[11px] font-semibold ${
-                  active ? "text-forest" : done ? "text-sage" : "text-ink-faint"
-                }`}
-              >
-                {done ? <Check className="h-3.5 w-3.5" /> : s.n}
-              </span>
-              <span
-                className={`text-[12.5px] ${
-                  active ? "font-semibold text-ink" : "text-ink-faint"
-                }`}
-              >
-                {s.label}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      {/* Step indicator, with voice entry alongside */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <ol className="flex flex-wrap items-center gap-x-7 gap-y-2">
+          {STEPS.map((s, i) => {
+            const index = i + 1;
+            const done = index < step;
+            const active = index === step;
+            return (
+              <li key={s.n} className="flex items-center gap-2">
+                <span
+                  className={`nums text-[11px] font-semibold ${
+                    active ? "text-forest" : done ? "text-sage" : "text-ink-faint"
+                  }`}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" /> : s.n}
+                </span>
+                <span
+                  className={`text-[12.5px] ${
+                    active ? "font-semibold text-ink" : "text-ink-faint"
+                  }`}
+                >
+                  {s.label}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        <button
+          type="button"
+          onClick={() => setVoiceOpen(true)}
+          className="transition-calm inline-flex items-center gap-2 rounded-xl border border-border-strong bg-surface px-4 py-2 text-[13px] font-semibold text-forest shadow-card hover:bg-sage-tint"
+        >
+          <Mic className="h-4 w-4" />
+          Start Voice Entry
+        </button>
+      </div>
+
+      {voiceApplied && (
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-border-strong bg-sage-tint px-5 py-4">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-forest-mid" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13.5px] font-semibold text-ink">Filled from voice entry</p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-muted">
+              Check every field before saving. Use Back to change the complaint, diagnosis or
+              medicines — the draft was an aid to entry, and the record is yours.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setVoiceApplied(false)}
+            aria-label="Dismiss"
+            className="transition-calm rounded-lg p-1 text-ink-faint hover:bg-white/60 hover:text-ink"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {voiceOpen && (
+        <VoiceEntry
+          scenarioIndex={voiceRecordings}
+          onRecorded={countRecording}
+          onClose={closeVoice}
+          onApply={applyVoiceDraft}
+        />
+      )}
 
       {/* ---------------------------------------------------------- Step 1 */}
       {step === 1 && (
