@@ -5,6 +5,10 @@ psycopg[binary]==3.2.3
 pydantic==2.10.4
 python-dotenv==1.0.1
 
+# Outbreak detection (STL) and the trend projection in routers/admin.py.
+numpy==2.5.3
+statsmodels==0.15.0
+
 # Authentication. bcrypt for password hashing, PyJWT for the session cookie.
 bcrypt==5.0.0
 pyjwt==2.7.0
