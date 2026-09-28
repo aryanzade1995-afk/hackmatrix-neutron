@@ -247,3 +247,25 @@ body {
     background-color: rgba(247, 249, 245, 0.94);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   "Print card" on a patient QR prints the card alone — not the header, the
+   form or the rest of the page around it.
+   --------------------------------------------------------------------------- */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .qr-print-card,
+  .qr-print-card * {
+    visibility: visible;
+  }
+  .qr-print-card {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: 520px;
+    background: #fff;
+    border-color: #d8e2d2;
+  }
+}

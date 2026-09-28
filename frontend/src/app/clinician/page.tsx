@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/Badge";
@@ -13,14 +13,17 @@ import { ArtContinuity } from "@/components/Illustrations";
 import { buildSummary } from "@/lib/summary";
 import { EmptyState } from "@/components/EmptyState";
 import { FigRecords } from "@/components/Figures";
-import { accessLog, clinicianTabs, DEFAULT_PATIENT_ID } from "@/lib/demo-data";
+import { clinicianTabs, type Patient } from "@/lib/demo-data";
 import { useStore } from "@/lib/store";
+import { PatientLookupState } from "@/components/PatientLookupState";
+import { usePatientLookup } from "@/lib/patientLookup";
+import { useAccessGrant } from "@/lib/accessGrant";
+import { useAccessLog, verifyChain, type VerifyResult } from "@/lib/auditLog";
 import {
   ageFromDob,
   changesSinceLastVisit,
   conflictsForVisit,
   findAllergyConflicts,
-  findPatientById,
   followUpStatus,
   formatBp,
   trendOf,
@@ -44,6 +47,8 @@ import {
   Siren,
   Timer,
   TriangleAlert,
+  CloudOff,
+  ScanLine,
 } from "lucide-react";
 
 const VITALS: { key: VitalKey; label: string; unit: string; lowerIsBetter: boolean }[] = [
@@ -67,21 +72,49 @@ export default function ClinicianPage() {
   );
 }
 
+/**
+ * The record for ?patient=. An id that does not resolve shows that plainly —
+ * it used to fall back to a default patient, so an unknown or mistyped id
+ * opened Priya Nair's chart under a "verified" badge.
+ */
 function ClinicianRecord() {
-  const { patients, visits: allVisits } = useStore();
   const searchParams = useSearchParams();
+  const lookup = usePatientLookup(searchParams.get("patient"));
 
-  // Falls back to Priya so every existing demo link keeps working.
-  const patient =
-    findPatientById(patients, searchParams.get("patient")) ??
-    findPatientById(patients, DEFAULT_PATIENT_ID)!;
+  if (lookup.status !== "found") {
+    return (
+      <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
+        <PatientLookupState lookup={lookup} />
+      </AppShell>
+    );
+  }
+  return (
+    <RecordView
+      key={lookup.patient.id}
+      patient={lookup.patient}
+      // Display cue only. The record of this access is the database row
+      // written when the break-glass form was submitted; removing the
+      // parameter hides the banner, not the audit entry.
+      viaEmergency={searchParams.get("emergency") === "1"}
+    />
+  );
+}
+
+function clock(ms: number) {
+  const total = Math.ceil(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function RecordView({ patient, viaEmergency }: { patient: Patient; viaEmergency: boolean }) {
+  const { visits: allVisits, source } = useStore();
+  const { grant, remaining, ready } = useAccessGrant(patient.id);
+  const accessLog = useAccessLog(patient.id);
+  const [chain, setChain] = useState<VerifyResult | null | undefined>(undefined);
+  useEffect(() => {
+    void verifyChain().then(setChain);
+  }, []);
 
   const visits = visitsForPatient(allVisits, patient.id);
-  // Display cue only. The record of this access is the database row written
-  // when the break-glass form was submitted — it exists whether or not this
-  // parameter is present, and removing it from the URL hides the banner, not
-  // the audit entry. Nobody should mistake the parameter for a control.
-  const viaEmergency = searchParams.get("emergency") === "1";
   const conflicts = findAllergyConflicts(visits, patient.allergies);
 
   // Same function the facility worklist uses, so a patient flagged here is
@@ -147,14 +180,50 @@ function ClinicianRecord() {
               <FileText className="h-4 w-4" />
               Summary for patient
             </Link>
-            <div className="flex items-center gap-2 rounded-xl bg-white/[0.08] px-3.5 py-2 text-[12.5px] font-medium text-success-lift ring-1 ring-inset ring-white/10">
-              <ShieldCheck className="h-4 w-4" />
-              Verified via QR consent token
-            </div>
-            <div className="nums flex items-center gap-1.5 text-[12px] text-cream-muted">
-              <Timer className="h-3.5 w-3.5" />
-              session expires in 4:12
-            </div>
+            {/* How this record was opened, from the grant written at the
+                moment of access — not a fixed badge on every record. */}
+            {ready && grant && (
+              <div
+                className={`flex items-center gap-2 rounded-xl bg-white/[0.08] px-3.5 py-2 text-[12.5px] font-medium ring-1 ring-inset ring-white/10 ${
+                  grant.via === "emergency" ? "text-warning-lift" : "text-success-lift"
+                }`}
+              >
+                {grant.via === "emergency" ? (
+                  <Siren className="h-4 w-4" />
+                ) : (
+                  <ShieldCheck className="h-4 w-4" />
+                )}
+                {grant.via === "qr"
+                  ? "Opened by QR consent scan"
+                  : grant.via === "search"
+                    ? "Opened from patient search"
+                    : "Opened by emergency access"}
+              </div>
+            )}
+            {ready && grant && remaining > 0 && (
+              <div className="nums flex items-center gap-1.5 text-[12px] text-cream-muted">
+                <Timer className="h-3.5 w-3.5" />
+                access window {clock(remaining)}
+              </div>
+            )}
+            {ready && grant && remaining === 0 && (
+              <Link
+                href="/clinician/scan"
+                className="transition-calm flex items-center gap-1.5 text-[12px] font-medium text-warning-lift underline underline-offset-4 hover:text-cream"
+              >
+                <Timer className="h-3.5 w-3.5" />
+                Access window ended · scan again
+              </Link>
+            )}
+            {ready && !grant && (
+              <Link
+                href="/clinician/scan"
+                className="transition-calm flex items-center gap-1.5 text-[12px] font-medium text-cream-muted underline underline-offset-4 hover:text-cream"
+              >
+                <ScanLine className="h-3.5 w-3.5" />
+                Not opened by a scan on this device · scan to verify
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -167,10 +236,34 @@ function ClinicianRecord() {
               Opened via emergency access
             </p>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
-              The reason given has been written to the audit trail, where this entry
-              is marked distinctly rather than blending in with ordinary access.
+              {grant?.via === "emergency" && grant.audit === "logged"
+                ? "The reason given has been written to the audit trail, where this entry is marked distinctly rather than blending in with ordinary access."
+                : grant?.via === "emergency" && grant.audit === "queued"
+                  ? "The records server could not be reached. The reason is saved on this device and will be written to the audit trail when the connection returns."
+                  : "No audit entry was confirmed for this access on this device."}
             </p>
           </div>
+        </div>
+      )}
+
+      {grant && grant.via !== "emergency" && grant.audit !== "logged" && (
+        <div className="mb-7 flex items-start gap-3.5 rounded-2xl border border-warning bg-warning-tint px-7 py-4">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <p className="text-[12.5px] leading-relaxed text-ink-muted">
+            {grant.audit === "queued"
+              ? "This access is saved on this device and will be written to the audit log when the connection returns."
+              : "This access could not be written to the audit log."}
+          </p>
+        </div>
+      )}
+
+      {source === "seed" && (
+        <div className="mb-7 flex items-start gap-3.5 rounded-2xl border border-warning bg-warning-tint px-7 py-4">
+          <CloudOff className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <p className="text-[12.5px] leading-relaxed text-ink-muted">
+            Not connected to the records server. This is the copy held on this device and
+            may not include recent visits.
+          </p>
         </div>
       )}
 
@@ -510,13 +603,33 @@ function ClinicianRecord() {
           <Card>
             <CardHeader
               title="Access log"
-              subtitle="Hash-chained — edits are detectable"
-              action={<Badge tone="success">Verified</Badge>}
+              subtitle="This patient's entries, hash-chained — edits are detectable"
+              action={
+                chain === undefined ? (
+                  <Badge tone="neutral">Checking…</Badge>
+                ) : chain === null ? (
+                  <Badge tone="neutral">Not checked</Badge>
+                ) : chain.valid ? (
+                  <Badge tone="success">Chain verified</Badge>
+                ) : (
+                  <Badge tone="danger">Chain broken</Badge>
+                )
+              }
               divided
             />
+            {accessLog.source === "api" && accessLog.entries.length === 0 && (
+              <p className="px-7 py-5 text-[12.5px] text-ink-faint">
+                No access to this record has been logged yet.
+              </p>
+            )}
+            {accessLog.source === "unavailable" && (
+              <p className="px-7 py-5 text-[12.5px] text-ink-faint">
+                The audit log cannot be read right now.
+              </p>
+            )}
             <ul className="divide-y divide-border">
-              {accessLog.map((entry, i) => (
-                <li key={i} className="flex items-center gap-3.5 px-7 py-3.5">
+              {accessLog.entries.slice(0, 6).map((entry) => (
+                <li key={entry.id} className="flex items-center gap-3.5 px-7 py-3.5">
                   {entry.outcome === "granted" ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
                   ) : (
@@ -524,9 +637,21 @@ function ClinicianRecord() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13.5px] font-medium text-ink">
-                      {entry.who}
+                      {entry.actor}
+                      {entry.action === "emergency_access" && (
+                        <span className="ml-1.5 text-[11.5px] font-semibold text-warning">
+                          emergency
+                        </span>
+                      )}
                     </p>
-                    <p className="nums text-[11.5px] text-ink-faint">{entry.when}</p>
+                    <p className="nums text-[11.5px] text-ink-faint">
+                      {new Date(entry.createdAt).toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
                   </div>
                   <Badge tone={entry.outcome === "granted" ? "success" : "danger"}>
                     {entry.outcome === "granted" ? "Granted" : "Denied"}

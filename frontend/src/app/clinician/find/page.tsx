@@ -1,22 +1,43 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Avatar } from "@/components/Avatar";
 import { Card, PageTitle } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { PatientQrPanel } from "@/components/PatientQrPanel";
 import { FigRecords } from "@/components/Figures";
-import { ageFromDob, findPatientsByQuery } from "@/lib/clinical";
+import { ageFromDob, findPatientById, findPatientsByQuery } from "@/lib/clinical";
+import { recordAccess } from "@/lib/auditLog";
+import { recordGrant } from "@/lib/accessGrant";
 import { useStore } from "@/lib/store";
 import { clinicianTabs, type Patient } from "@/lib/demo-data";
-import { ArrowRight, QrCode, Search, X } from "lucide-react";
+import { ArrowRight, Loader2, QrCode, Search, TriangleAlert, X } from "lucide-react";
 
 export default function FindPatientPage() {
-  const { patients } = useStore();
+  const router = useRouter();
+  const { patients, reassigned, dismissReassigned } = useStore();
   const [query, setQuery] = useState("");
   const [reissueFor, setReissueFor] = useState<Patient | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+
+  /**
+   * Opening a record from search is an access like any other: it is written
+   * to the audit log and marked as opened from search, not by a QR scan.
+   * It used to be a plain link that left no trace in the log.
+   */
+  async function openRecord(p: Patient) {
+    setOpening(p.id);
+    const log = await recordAccess({ patientId: p.id, action: "view_record", outcome: "granted" });
+    recordGrant({
+      patientId: p.id,
+      via: "search",
+      at: Date.now(),
+      audit: log.status === "rejected" ? "failed" : log.status,
+    });
+    router.push(`/clinician?patient=${encodeURIComponent(p.id)}`);
+  }
 
   const results = findPatientsByQuery(patients, query);
   const searching = query.trim().length > 0;
@@ -28,6 +49,46 @@ export default function FindPatientPage() {
         title="Find a patient"
         subtitle="Search by name, phone, or patient ID instead of scanning."
       />
+
+      {/* Offline registrations whose number was taken by the time they
+          synced. Their printed code is wrong and must be replaced. */}
+      {reassigned.map((r) => {
+        const current = findPatientById(patients, r.to);
+        return (
+          <div
+            key={r.from}
+            className="mb-5 flex flex-wrap items-start gap-3 rounded-2xl border border-warning bg-warning-tint px-5 py-4"
+          >
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-ink-muted">
+              <span className="font-semibold text-ink">{r.name}</span> was registered offline
+              as <span className="nums font-mono">{r.from}</span>, but that number was taken
+              before it synced. Their record is{" "}
+              <span className="nums font-mono">{r.to}</span> — the code they were given will
+              not open it. Reissue their QR.
+            </p>
+            <div className="flex shrink-0 gap-2">
+              {current && (
+                <button
+                  type="button"
+                  onClick={() => setReissueFor(current)}
+                  className="transition-calm inline-flex items-center gap-1.5 rounded-xl bg-forest px-3.5 py-1.5 text-[12.5px] font-semibold text-cream hover:bg-forest-deep"
+                >
+                  <QrCode className="h-3.5 w-3.5" />
+                  Reissue QR
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => dismissReassigned(r.from)}
+                className="transition-calm rounded-xl px-3 py-1.5 text-[12.5px] text-ink-muted hover:bg-white/60 hover:text-ink"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        );
+      })}
 
       <Card>
         <div className="px-7 pb-2 pt-7">
@@ -83,13 +144,19 @@ export default function FindPatientPage() {
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-center gap-2.5">
-                  <Link
-                    href={`/clinician?patient=${p.id}`}
-                    className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-4 py-2 text-[13px] font-semibold text-cream hover:bg-forest-deep"
+                  <button
+                    type="button"
+                    onClick={() => void openRecord(p)}
+                    disabled={opening !== null}
+                    className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-4 py-2 text-[13px] font-semibold text-cream hover:bg-forest-deep disabled:opacity-60"
                   >
                     Open record
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
+                    {opening === p.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setReissueFor(reissueFor?.id === p.id ? null : p)}

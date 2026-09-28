@@ -6,8 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { Card, PageTitle, SectionLabel } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PatientQrPanel } from "@/components/PatientQrPanel";
-import { nextPatientId } from "@/lib/clinical";
-import { useStore } from "@/lib/store";
+import { useStore, type RegisterOutcome } from "@/lib/store";
 import {
   DISTRICTS,
   DRUG_CLASSES,
@@ -17,7 +16,7 @@ import {
   type DrugClass,
   type Patient,
 } from "@/lib/demo-data";
-import { ArrowRight, UserPlus } from "lucide-react";
+import { ArrowRight, CloudOff, Info, Loader2, TriangleAlert, UserPlus } from "lucide-react";
 
 const NONE = "None known";
 
@@ -46,7 +45,7 @@ function Field({
 }
 
 export default function RegisterPage() {
-  const { patients, addPatient } = useStore();
+  const { proposePatientId, registerPatient } = useStore();
 
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
@@ -57,6 +56,8 @@ export default function RegisterPage() {
   const [allergyClasses, setAllergyClasses] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<Patient | null>(null);
+  const [outcome, setOutcome] = useState<RegisterOutcome | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   function toggleAllergy(value: string) {
     setAllergyClasses((prev) => {
@@ -68,8 +69,9 @@ export default function RegisterPage() {
     });
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
 
     const next: Record<string, string> = {};
     if (!name.trim()) next.name = "Enter the patient's full name";
@@ -96,7 +98,7 @@ export default function RegisterPage() {
       }));
 
     const patient: Patient = {
-      id: nextPatientId(patients),
+      id: proposePatientId(),
       name: name.trim(),
       dob,
       gender: gender as Patient["gender"],
@@ -108,8 +110,12 @@ export default function RegisterPage() {
       registeredAt: new Date().toISOString().slice(0, 10),
     };
 
-    addPatient(patient);
-    setCreated(patient);
+    // The QR is shown only once the server has confirmed the id it encodes.
+    setSubmitting(true);
+    const result = await registerPatient(patient);
+    setSubmitting(false);
+    setOutcome(result);
+    if (result.status !== "error") setCreated(result.patient);
   }
 
   function reset() {
@@ -122,6 +128,7 @@ export default function RegisterPage() {
     setAllergyClasses([]);
     setErrors({});
     setCreated(null);
+    setOutcome(null);
   }
 
   return (
@@ -139,6 +146,22 @@ export default function RegisterPage() {
             <h2 className="text-display mt-2 text-[22px] text-ink">
               {created.name} now has a record
             </h2>
+
+            {outcome?.status === "saved" && outcome.reassignedFrom && (
+              <p className="mt-3 flex items-start gap-2 rounded-xl bg-sage-tint px-4 py-3 text-[12.5px] leading-relaxed text-ink-muted">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-forest-mid" />
+                {outcome.reassignedFrom} was registered to another patient moments ago, so
+                this patient was given {created.id}. The code below encodes {created.id}.
+              </p>
+            )}
+            {outcome?.status === "queued" && (
+              <p className="mt-3 flex items-start gap-2 rounded-xl bg-warning-tint px-4 py-3 text-[12.5px] leading-relaxed text-ink-muted">
+                <CloudOff className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                Saved on this device — the records server could not be reached. It will be
+                sent when the connection returns. If {created.id} has been taken by then, the
+                patient is given a new number and a notice asks you to reissue this code.
+              </p>
+            )}
 
             <PatientQrPanel
               patientId={created.id}
@@ -264,12 +287,29 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {outcome?.status === "error" && (
+              <p className="mt-6 flex items-start gap-2 rounded-xl bg-danger-tint px-4 py-3 text-[12.5px] leading-relaxed text-danger">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                Not registered: {outcome.message}
+              </p>
+            )}
+
             <button
               type="submit"
-              className="transition-calm mt-7 inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
+              disabled={submitting}
+              className="transition-calm mt-7 inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep disabled:opacity-60"
             >
-              Generate QR code
-              <ArrowRight className="h-4 w-4" />
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Registering…
+                </>
+              ) : (
+                <>
+                  Generate QR code
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
           </form>
         </Card>

@@ -36,6 +36,12 @@ export function QrScanner({
     null,
   );
   const decodedRef = useRef(false);
+  // The camera callback outlives the render that started it; always hand the
+  // result to the latest onDecode, not the one captured at start.
+  const onDecodeRef = useRef(onDecode);
+  useEffect(() => {
+    onDecodeRef.current = onDecode;
+  }, [onDecode]);
 
   async function start() {
     setStatus("starting");
@@ -54,7 +60,7 @@ export function QrScanner({
           // A camera fires repeatedly on the same code; act once.
           if (decodedRef.current) return;
           decodedRef.current = true;
-          void stop().then(() => onDecode(decodedText.trim()));
+          void stop().then(() => onDecodeRef.current(decodedText.trim()));
         },
         () => {
           // Per-frame "no code found" — normal, and far too noisy to surface.
@@ -63,6 +69,15 @@ export function QrScanner({
 
       setStatus("scanning");
     } catch (err) {
+      // A start that failed leaves an instance holding the element; release
+      // it so "Try the camera again" starts from a clean slate.
+      const failed = scannerRef.current;
+      scannerRef.current = null;
+      try {
+        failed?.clear();
+      } catch {
+        /* nothing was rendered */
+      }
       setStatus("error");
       setError(messageFor(err));
     }
@@ -99,7 +114,7 @@ export function QrScanner({
       const text = await scanner.scanFile(file, /* showImage */ false);
       scanner.clear();
       setStatus("idle");
-      onDecode(text.trim());
+      onDecodeRef.current(text.trim());
     } catch {
       setStatus("error");
       setError("No QR code found in that image. Try a clearer photo of the code.");

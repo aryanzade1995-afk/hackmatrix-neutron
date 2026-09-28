@@ -14,6 +14,11 @@ import { Download, Printer } from "lucide-react";
  * Two ways out, both offline: download the PNG, or print a card. There is no
  * network path here on purpose — a PHC with an unreliable connection can still
  * hand a patient their code.
+ *
+ * The code carries the four-module white border (quiet zone) the QR standard
+ * requires. Without it the downloaded PNG starts on a dark module at its very
+ * edge, which this app's own scanner tolerates but phone cameras and printed
+ * cards on a dark surface often do not.
  */
 export function PatientQrPanel({
   patientId,
@@ -32,21 +37,25 @@ export function PatientQrPanel({
     const link = document.createElement("a");
     link.download = `${patientId}-qr.png`;
     link.href = canvas.toDataURL("image/png");
+    // Attached for the click: some browsers ignore clicks on detached links.
+    document.body.appendChild(link);
     link.click();
+    link.remove();
   }
 
   return (
     <div
-      className={`rounded-2xl border border-border-strong bg-sage-tint px-6 py-6 ${className}`}
+      className={`qr-print-card rounded-2xl border border-border-strong bg-sage-tint px-6 py-6 ${className}`}
     >
       <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start">
         <div
           ref={wrapRef}
-          className="shrink-0 rounded-xl bg-surface p-3.5 ring-1 ring-inset ring-border print:ring-0"
+          className="shrink-0 rounded-xl bg-surface p-1.5 ring-1 ring-inset ring-border print:ring-0"
         >
           <QRCodeCanvas
             value={patientId}
-            size={148}
+            size={172}
+            marginSize={4}
             bgColor="#FFFFFF"
             fgColor="#11271D"
             level="M"

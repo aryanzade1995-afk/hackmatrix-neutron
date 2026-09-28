@@ -4,10 +4,12 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Mark } from "@/components/Mark";
-import { ageFromDob, findPatientById, visitsForPatient } from "@/lib/clinical";
+import { ageFromDob, visitsForPatient } from "@/lib/clinical";
+import { PatientLookupState } from "@/components/PatientLookupState";
+import { usePatientLookup } from "@/lib/patientLookup";
 import { computeSummaryFacts, renderPatientSummary } from "@/lib/summary";
 import { useStore } from "@/lib/store";
-import { DEFAULT_PATIENT_ID } from "@/lib/demo-data";
+import type { Patient } from "@/lib/demo-data";
 import { ArrowLeft, Pill, Printer, TriangleAlert } from "lucide-react";
 
 /**
@@ -25,12 +27,20 @@ export default function PatientSummaryPage() {
 }
 
 function PatientSummaryView() {
-  const { patients, visits: allVisits } = useStore();
   const searchParams = useSearchParams();
+  const lookup = usePatientLookup(searchParams.get("patient"));
+  if (lookup.status !== "found") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <PatientLookupState lookup={lookup} />
+      </div>
+    );
+  }
+  return <SummaryView key={lookup.patient.id} patient={lookup.patient} />;
+}
 
-  const patient =
-    findPatientById(patients, searchParams.get("patient")) ??
-    findPatientById(patients, DEFAULT_PATIENT_ID)!;
+function SummaryView({ patient }: { patient: Patient }) {
+  const { visits: allVisits } = useStore();
 
   const visits = visitsForPatient(allVisits, patient.id);
   const summary = renderPatientSummary(computeSummaryFacts(patient, visits));

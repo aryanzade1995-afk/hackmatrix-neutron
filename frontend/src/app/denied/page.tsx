@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { Mark } from "@/components/Mark";
 import { FigShield } from "@/components/Figures";
-import { ArrowLeft, Link2, ShieldAlert } from "lucide-react";
+import { ArrowLeft, LogIn } from "lucide-react";
 
-const record = [
-  { k: "Attempted", v: "Open patient record PT-2291" },
-  { k: "Account", v: "K. Iyer · Administrator" },
-  { k: "Refused by", v: "Server-side role check" },
-  { k: "Logged at", v: "Today, 09:58 AM" },
-];
+/**
+ * Where a patient lookup lands when the server answers 403: signed in, but
+ * not with clinician rights.
+ *
+ * This page used to show an "attempt was recorded" card with a fixed patient,
+ * account, time and hash that matched no row in the audit log. It shows only
+ * what is true: the server refused, and no record was read. A session without
+ * clinician rights cannot write to the access log either, so this page does
+ * not claim that it did.
+ */
 
 export default function DeniedPage() {
   return (
@@ -37,38 +41,20 @@ export default function DeniedPage() {
           that would have shown it.
         </p>
 
-        <div className="mt-9 w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface text-left shadow-card">
-          <p className="flex items-center gap-2 border-b border-border bg-danger-tint px-6 py-3 text-[12.5px] font-semibold text-danger">
-            <ShieldAlert className="h-4 w-4" />
-            This attempt was recorded
-          </p>
-          <dl className="divide-y divide-border">
-            {record.map((row) => (
-              <div key={row.k} className="flex items-baseline gap-4 px-6 py-3">
-                <dt className="w-24 shrink-0 text-[11.5px] text-ink-faint">{row.k}</dt>
-                <dd className="text-[13px] text-ink">{row.v}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="nums flex items-center gap-1.5 border-t border-border px-6 py-3 font-mono text-[11px] text-ink-faint">
-            <Link2 className="h-3 w-3" />
-            b07c…12f9 · chained to the entry before it
-          </p>
-        </div>
-
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/login"
+            className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
+          >
+            <LogIn className="h-4 w-4" />
+            Sign in as a clinician
+          </Link>
           <Link
             href="/admin"
-            className="transition-calm inline-flex items-center gap-2 rounded-xl bg-forest px-5 py-2.5 text-[13.5px] font-semibold text-cream hover:bg-forest-deep"
+            className="transition-calm inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-5 py-2.5 text-[13.5px] font-medium text-ink-muted hover:border-border-strong hover:text-ink"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to the aggregate view
-          </Link>
-          <Link
-            href="/clinician/audit"
-            className="transition-calm inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-5 py-2.5 text-[13.5px] font-medium text-ink-muted hover:border-border-strong hover:text-ink"
-          >
-            See the audit log
           </Link>
         </div>
       </main>

@@ -9,12 +9,13 @@ import { Chip } from "@/components/Chip";
 import { DoseBuilder } from "@/components/DoseBuilder";
 import { RxBadge, RxLine } from "@/components/RxLine";
 import { PatientContextBar } from "@/components/PatientContextBar";
+import { PatientLookupState } from "@/components/PatientLookupState";
+import { usePatientLookup } from "@/lib/patientLookup";
 import { VoiceEntry } from "@/components/VoiceEntry";
 import { useStore } from "@/lib/store";
 import {
   ageFromDob,
   applicableComplaintsFor,
-  findPatientById,
   lastPrescriptionForPatient,
   pastDiagnosesAt,
   rankedComplaintsFor,
@@ -23,8 +24,8 @@ import {
 } from "@/lib/clinical";
 import {
   chiefComplaints,
-  DEFAULT_PATIENT_ID,
   FACILITIES,
+  type Patient,
   type Visit,
   clinicianTabs,
 } from "@/lib/demo-data";
@@ -91,14 +92,30 @@ export default function NewVisitPage() {
   );
 }
 
+/**
+ * A visit is recorded against the patient named in ?patient=, or not at all.
+ * An unknown id used to fall back to a default patient here, so a visit for
+ * someone not yet in the local list was saved to Priya Nair's record. The form
+ * mounts only once the patient is resolved, so nothing in it (the facility,
+ * say) is initialised from the wrong person.
+ */
 function NewVisitFlow() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const { patients, visits, addVisit } = useStore();
+  const lookup = usePatientLookup(searchParams.get("patient"));
 
-  const patient =
-    findPatientById(patients, searchParams.get("patient")) ??
-    findPatientById(patients, DEFAULT_PATIENT_ID)!;
+  if (lookup.status !== "found") {
+    return (
+      <AppShell role="clinician" userName="Dr. R. Deshmukh" tabs={clinicianTabs}>
+        <PatientLookupState lookup={lookup} />
+      </AppShell>
+    );
+  }
+  return <VisitForm key={lookup.patient.id} patient={lookup.patient} />;
+}
+
+function VisitForm({ patient }: { patient: Patient }) {
+  const router = useRouter();
+  const { visits, addVisit } = useStore();
 
   const [step, setStep] = useState(1);
   const [complaintId, setComplaintId] = useState<string | null>(null);

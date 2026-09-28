@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { enqueue, isConnectivityFailure } from "./writeQueue";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -23,33 +24,64 @@ export type VerifyResult = {
   detail?: string;
 };
 
+export type AccessResult =
+  | { status: "logged"; entry: AccessLogEntry }
+  /** No connection: kept on this device and sent with the next sync. */
+  | { status: "queued" }
+  /** The server answered and refused. Nothing was recorded. */
+  | { status: "rejected"; message: string };
+
 /**
- * Records an access attempt.
+ * Records an access attempt, and says whether it was recorded.
  *
- * Fire-and-forget by design: the clinician's navigation must not wait on the
- * log, and a logging failure must never be the reason a doctor cannot open a
- * record. The write is still append-only at the database, so a lost entry is
- * a gap, never a rewrite.
+ * Who accessed the record is not sent: the server takes it from the signed
+ * session, so the trail names whoever is actually signed in. When the server
+ * cannot be reached the entry is queued rather than lost — the log is
+ * append-only, so a late entry is a delay, never a rewrite — and the reason
+ * notes when the access really happened, since the server stamps its own time
+ * on arrival.
  */
 export async function recordAccess(entry: {
   patientId?: string | null;
-  actor: string;
   action: AccessLogEntry["action"];
   outcome?: AccessLogEntry["outcome"];
   reason?: string;
-}): Promise<AccessLogEntry | null> {
-  if (!API) return null;
+}): Promise<AccessResult> {
+  const body = { outcome: "granted" as const, ...entry, patientId: entry.patientId ?? null };
+  if (!API) return { status: "rejected", message: "NEXT_PUBLIC_API_URL is not set" };
   try {
     const res = await fetch(`${API}/clinician/access-log`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "granted", ...entry }),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as AccessLogEntry;
-  } catch {
-    return null;
+    if (res.ok) return { status: "logged", entry: (await res.json()) as AccessLogEntry };
+    const detail = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+    return {
+      status: "rejected",
+      message:
+        typeof detail?.detail === "string"
+          ? detail.detail
+          : `The audit log refused the entry (${res.status}).`,
+    };
+  } catch (err) {
+    if (!isConnectivityFailure(err)) {
+      return { status: "rejected", message: err instanceof Error ? err.message : String(err) };
+    }
+    const at = new Date().toISOString();
+    enqueue({
+      kind: "access",
+      payload: {
+        id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        patientId: body.patientId,
+        action: body.action,
+        outcome: body.outcome,
+        reason: [body.reason, `recorded offline at ${at}`].filter(Boolean).join(" — "),
+      },
+      queuedAt: at,
+    });
+    return { status: "queued" };
   }
 }
 

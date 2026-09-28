@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
@@ -9,13 +9,11 @@ import { FigConsentCard } from "@/components/Figures";
 import { QrScanner } from "@/components/QrScanner";
 import { findPatientById, findPatientsByQuery } from "@/lib/clinical";
 import { recordAccess } from "@/lib/auditLog";
+import { recordGrant } from "@/lib/accessGrant";
+import { fetchPatient } from "@/lib/patientLookup";
 import { useStore } from "@/lib/store";
 import { clinicianTabs, type Patient } from "@/lib/demo-data";
-import { Clock, ScanLine, ShieldCheck, Siren } from "lucide-react";
-
-/** No auth yet, so the acting clinician is fixed. The audit row is real
- *  regardless; only the name is a placeholder. */
-const CLINICIAN = "Dr. R. Deshmukh";
+import { Clock, Loader2, ScanLine, ShieldCheck, Siren, TriangleAlert } from "lucide-react";
 
 const steps = [
   {
@@ -37,8 +35,17 @@ const steps = [
 
 export default function ScanPage() {
   const router = useRouter();
-  const { patients } = useStore();
-  const [notFoundId, setNotFoundId] = useState<string | null>(null);
+  const { patients, rememberPatient } = useStore();
+  const [resolving, setResolving] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  // The camera's decode callback is created when the camera starts, and a
+  // plain closure would keep reading the patient list from that moment —
+  // often the seed list, before the real one had loaded. Read it live.
+  const patientsRef = useRef(patients);
+  useEffect(() => {
+    patientsRef.current = patients;
+  }, [patients]);
 
   const [breakGlass, setBreakGlass] = useState(false);
   const [query, setQuery] = useState("");
@@ -50,29 +57,71 @@ export default function ScanPage() {
   const matches = findPatientsByQuery(patients, query).slice(0, 5);
 
   /**
-   * The QR encodes a patient id and nothing else. Finding a match opens the
-   * record; not finding one is a legitimate outcome with its own screen, not
-   * an error — a code can be valid and simply have no history behind it.
+   * The QR encodes a patient id and nothing else.
+   *
+   * The server is asked first: it is the source of truth, and the local list
+   * may still be loading, be the offline copy, or simply not hold a patient
+   * registered on another device a minute ago. Only when the server cannot be
+   * reached does the local list decide. A code that matches nobody is logged
+   * as a refused attempt and gets its own screen — it never opens a record.
    */
-  function handleDecode(value: string) {
-    setNotFoundId(null);
-    const patient = findPatientById(patients, value);
+  async function handleDecode(value: string) {
+    const code = value.trim();
+    setScanError(null);
+    if (!code) return;
+    setResolving(code);
 
-    if (patient) {
-      // Fire-and-forget: navigation must not wait on the audit write, and a
-      // logging failure must never stop a doctor opening a record.
-      void recordAccess({
-        patientId: patient.id,
-        actor: CLINICIAN,
-        action: "view_record",
-        outcome: "granted",
-      });
-      router.push(`/clinician?patient=${patient.id}`);
+    const server = await fetchPatient(code);
+    if (server.kind === "unauthorized") {
+      router.replace("/login");
+      return;
+    }
+    if (server.kind === "forbidden") {
+      router.push("/denied");
       return;
     }
 
-    setNotFoundId(value);
-    router.push(`/clinician/not-found-record?patient=${encodeURIComponent(value)}`);
+    let patient: Patient | undefined;
+    if (server.kind === "found") {
+      patient = server.patient;
+      rememberPatient(patient);
+    } else if (server.kind === "offline") {
+      patient = findPatientById(patientsRef.current, code);
+    } else if (server.kind === "error") {
+      setResolving(null);
+      setScanError(`The code could not be checked: ${server.message}`);
+      return;
+    }
+
+    if (!patient) {
+      void recordAccess({
+        patientId: null,
+        action: "view_record",
+        outcome: "denied",
+        reason: `No patient matches the scanned code "${code.slice(0, 48)}"`,
+      });
+      router.push(
+        `/clinician/not-found-record?code=${encodeURIComponent(code)}${
+          server.kind === "offline" ? "&offline=1" : ""
+        }`,
+      );
+      return;
+    }
+
+    // Awaited, so the record can say truthfully whether this access was
+    // logged. Offline, the entry is queued and the record still opens.
+    const log = await recordAccess({
+      patientId: patient.id,
+      action: "view_record",
+      outcome: "granted",
+    });
+    recordGrant({
+      patientId: patient.id,
+      via: "qr",
+      at: Date.now(),
+      audit: log.status === "rejected" ? "failed" : log.status,
+    });
+    router.push(`/clinician?patient=${encodeURIComponent(patient.id)}`);
   }
 
   /**
@@ -90,15 +139,22 @@ export default function ScanPage() {
       return;
     }
     setSubmitting(true);
-    await recordAccess({
+    const log = await recordAccess({
       patientId,
-      actor: CLINICIAN,
       action: "emergency_access",
       outcome: "granted",
       reason: reason.trim(),
     });
     setSubmitting(false);
-    router.push(`/clinician?patient=${patientId}&emergency=1`);
+    // Break-glass is only acceptable because it is accountable. If the server
+    // refused the entry, the record stays closed. Offline, the entry is
+    // queued and the record opens, with that shown on it.
+    if (log.status === "rejected") {
+      setReasonError(`Not opened — the audit log refused the entry: ${log.message}`);
+      return;
+    }
+    recordGrant({ patientId, via: "emergency", at: Date.now(), audit: log.status });
+    router.push(`/clinician?patient=${encodeURIComponent(patientId)}&emergency=1`);
   }
 
   return (
@@ -126,12 +182,18 @@ export default function ScanPage() {
           </p>
 
           {/* Camera, with photo upload as the fallback when it cannot start. */}
-          <QrScanner onDecode={handleDecode} className="mt-5" />
+          <QrScanner onDecode={(v) => void handleDecode(v)} className="mt-5" />
 
-          {notFoundId && (
-            <p className="mt-3 max-w-xs text-center text-[12.5px] leading-relaxed text-warning">
-              Read code <span className="nums font-mono">{notFoundId}</span>, but no
-              patient matches it.
+          {resolving && !scanError && (
+            <p className="mt-3 flex items-center gap-2 text-[12.5px] text-ink-muted" role="status">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Checking <span className="nums font-mono">{resolving}</span>…
+            </p>
+          )}
+          {scanError && (
+            <p className="mt-3 flex max-w-xs items-start gap-2 text-center text-[12.5px] leading-relaxed text-danger">
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {scanError}
             </p>
           )}
 

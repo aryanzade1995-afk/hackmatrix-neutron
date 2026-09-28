@@ -49,11 +49,18 @@ export function visitsForPatient(visits: Visit[], patientId: string): Visit[] {
 }
 
 /** Next sequential id in the PT-#### series. */
-export function nextPatientId(patients: Patient[]): string {
+/**
+ * The next PT-#### id after every well-formed one given, and never below
+ * `floor`. Only PT-<digits> counts: digits pulled out of BP-0001 or
+ * PT-SPIKE-12 say nothing about the numbering. This is a proposal — the
+ * server confirms it or assigns another on registration.
+ */
+export function nextPatientId(patients: Patient[], floor = 0): string {
   const highest = patients.reduce((max, p) => {
-    const n = Number.parseInt(p.id.replace(/\D/g, ""), 10);
-    return Number.isFinite(n) && n > max ? n : max;
-  }, 0);
+    const m = /^PT-(\d+)$/i.exec(p.id);
+    const n = m ? Number.parseInt(m[1], 10) : 0;
+    return n > max ? n : max;
+  }, floor);
   return `PT-${highest + 1}`;
 }
 
