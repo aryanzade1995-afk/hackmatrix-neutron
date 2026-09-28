@@ -12,7 +12,7 @@ import { Camera, CameraOff, ImageUp, Loader2 } from "lucide-react";
  *
  * A camera can always fail on stage: bad light, a webcam that will not focus,
  * a browser that blocks the permission prompt. Every failure here is reported
- * plainly so the simulated path stays available as a fallback.
+ * plainly, and uploading a photo of the code works as the fallback.
  */
 
 type Status = "idle" | "starting" | "scanning" | "error";
@@ -187,16 +187,16 @@ export function QrScanner({
 function messageFor(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/permission|NotAllowed/i.test(raw)) {
-    return "Camera permission was refused. Allow it in the browser, or use a simulated scan below.";
+    return "Camera permission was refused. Allow it in the browser, or upload a photo of the code.";
   }
   if (/NotFound|no camera/i.test(raw)) {
-    return "No camera found on this device. Use a simulated scan below.";
+    return "No camera found on this device. Upload a photo of the code instead.";
   }
   if (/NotReadable|in use/i.test(raw)) {
-    return "The camera is being used by another app. Close it, or use a simulated scan below.";
+    return "The camera is being used by another app. Close it, or upload a photo of the code.";
   }
   if (/secure|https/i.test(raw)) {
-    return "Camera access needs HTTPS or localhost. Use a simulated scan below.";
+    return "Camera access needs HTTPS or localhost. Upload a photo of the code instead.";
   }
-  return `Camera could not start: ${raw}. Use a simulated scan below.`;
+  return `Camera could not start: ${raw}. Upload a photo of the code instead.`;
 }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mark } from "@/components/Mark";
 import { FigClinician } from "@/components/Figures";
-import { Loader2, Lock, TriangleAlert } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -151,11 +151,6 @@ export default function LoginPage() {
                 {busy ? "Signing in…" : "Sign in"}
               </button>
             </form>
-
-            <p className="mt-6 flex items-center gap-2 text-[11.5px] text-cream-muted">
-              <Lock className="h-3.5 w-3.5" />
-              Synthetic data only — no real patient records exist in this build
-            </p>
           </div>
 
           <FigClinician className="mx-auto hidden h-auto w-[180px] md:block" />

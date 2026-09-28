@@ -11,7 +11,7 @@ import { findPatientById, findPatientsByQuery } from "@/lib/clinical";
 import { recordAccess } from "@/lib/auditLog";
 import { useStore } from "@/lib/store";
 import { clinicianTabs, type Patient } from "@/lib/demo-data";
-import { ArrowRight, Clock, ScanLine, ShieldCheck, Siren } from "lucide-react";
+import { Clock, ScanLine, ShieldCheck, Siren } from "lucide-react";
 
 /** No auth yet, so the acting clinician is fixed. The audit row is real
  *  regardless; only the name is a placeholder. */
@@ -125,8 +125,7 @@ export default function ScanPage() {
             Waiting for a code…
           </p>
 
-          {/* Real camera. Every simulated path below stays available, because a
-              webcam failing on stage should not derail the demo. */}
+          {/* Camera, with photo upload as the fallback when it cannot start. */}
           <QrScanner onDecode={handleDecode} className="mt-5" />
 
           {notFoundId && (
@@ -136,32 +135,7 @@ export default function ScanPage() {
             </p>
           )}
 
-          <div className="mt-6 w-full border-t border-border pt-5">
-            <p className="text-center text-[11px] font-semibold uppercase tracking-label text-ink-faint">
-              Or simulate
-            </p>
-          </div>
-
-          <Link
-            href="/clinician"
-            className="transition-calm mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-5 py-2.5 text-[13.5px] font-medium text-ink-muted hover:border-border-strong hover:text-ink"
-          >
-            Simulate a successful scan
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-            <Link
-              href="/denied"
-              className="transition-calm text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted"
-            >
-              Simulate a scan without clinician rights
-            </Link>
-            <Link
-              href="/clinician/not-found-record"
-              className="transition-calm text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted"
-            >
-              Simulate a patient with no history
-            </Link>
+          <div className="mt-6 flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-border pt-5">
             <Link
               href="/clinician/register"
               className="transition-calm text-[12.5px] text-ink-faint underline underline-offset-4 hover:text-ink-muted"

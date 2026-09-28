@@ -103,12 +103,6 @@ export default function Home({
           ))}
         </div>
       </main>
-
-      <footer className="mx-auto w-full max-w-[1400px] px-8 pb-8">
-        <p className="border-t border-white/10 pt-6 text-[12px] text-cream-muted">
-          Demonstration build · all patient data shown is synthetic
-        </p>
-      </footer>
     </div>
   );
 }
