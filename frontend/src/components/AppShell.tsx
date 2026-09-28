@@ -107,23 +107,24 @@ export function AppShell({
   return (
     <div className="flex min-h-screen flex-col">
       <header className="mesh-bar">
-        <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-8">
-          <div className="flex items-center gap-10">
-            <Link href="/" className="flex items-center gap-2.5">
-              <Mark className="h-[22px] w-[22px] text-sage-light" />
-              <span className="font-serif text-[17px] font-semibold tracking-tight text-cream">
-                Hackmatrix
-              </span>
-            </Link>
+        {/* Below md the tabs drop to their own row and scroll sideways, so the
+            header never pushes the page wider than a phone screen. */}
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 px-4 pt-3 md:h-16 md:flex-nowrap md:px-8 md:pt-0">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+            <Mark className="h-[22px] w-[22px] text-sage-light" />
+            <span className="font-serif text-[17px] font-semibold tracking-tight text-cream">
+              Hackmatrix
+            </span>
+          </Link>
 
-            <nav className="flex items-center gap-1">
+          <nav className="order-last -mx-4 flex w-[calc(100%+2rem)] items-center gap-1 overflow-x-auto px-4 py-2 md:order-none md:mx-0 md:ml-6 md:w-auto md:overflow-visible md:px-0 md:py-0">
               {tabs.map((tab) => {
                 const active = pathname === tab.href;
                 return (
                   <Link
                     key={tab.href}
                     href={tab.href}
-                    className={`transition-calm rounded-lg px-3.5 py-1.5 text-[13.5px] font-medium ${
+                    className={`transition-calm shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13.5px] font-medium ${
                       active
                         ? "bg-white/10 text-cream shadow-inset"
                         : "text-cream-muted hover:bg-white/[0.06] hover:text-cream"
@@ -133,10 +134,9 @@ export function AppShell({
                   </Link>
                 );
               })}
-            </nav>
-          </div>
+          </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-3">
             <SyncStatus />
             <span className="hidden text-[11px] font-medium uppercase tracking-label text-sage-light sm:block">
               {role === "clinician" ? "Clinician access" : "Aggregate access"}
@@ -161,7 +161,7 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-7">{children}</main>
+      <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-7 md:px-8">{children}</main>
     </div>
   );
 }

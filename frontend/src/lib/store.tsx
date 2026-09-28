@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import {
   patients as seedPatients,
   visits as seedVisits,
@@ -68,6 +69,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [justSynced, setJustSynced] = useState(false);
 
+  // The provider lives in the root layout, so it first mounts on the home or
+  // login page, before any session cookie exists. Loading only inside the
+  // clinician area, and again on every entry to it, means a sign-in is picked
+  // up without a page reload, and the admin and public pages never ask for
+  // identified data they are not allowed to have.
+  const pathname = usePathname();
+  const inClinicianArea = pathname?.startsWith("/clinician") ?? false;
+
   const drain = useCallback(async () => {
     if (!API) return;
     const before = readQueue().length;
@@ -88,7 +97,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPendingCount(readQueue().length);
     if (!API) return;
 
+    if (!inClinicianArea) {
+      // Leaving the clinician area (sign-out included): nothing identified
+      // stays in memory from the previous session.
+      setPatients(seedPatients);
+      setVisits(seedVisits);
+      setSource("loading");
+      setError(null);
+      return;
+    }
+
     const controller = new AbortController();
+    setSource("loading");
 
     (async () => {
       try {
@@ -109,7 +129,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => controller.abort();
-  }, [drain]);
+  }, [drain, inClinicianArea]);
 
   // The browser tells us when the link is back; take it as a cue to retry.
   useEffect(() => {
