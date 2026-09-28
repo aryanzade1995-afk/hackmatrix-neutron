@@ -63,8 +63,17 @@ export function heatColor(value: number, max: number): HeatCell {
 
 export const HEAT_LEGEND = RAMP;
 
-/** Week label for an axis: "14 Sep". */
+/** Week label for an axis: "14 Sep".
+ *
+ *  A date-only string ("2026-09-14") is parsed by JavaScript as UTC midnight,
+ *  so it is formatted in UTC too. Formatting it in local time would show the
+ *  day before to anyone west of Greenwich. */
 export function weekLabel(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    ...(dateOnly ? { timeZone: "UTC" } : {}),
+  });
 }

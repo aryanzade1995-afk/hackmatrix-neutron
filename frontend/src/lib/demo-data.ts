@@ -872,6 +872,7 @@ export const adminTabs = [
   { label: "Overview", href: "/admin" },
   { label: "Trends", href: "/admin/trends" },
   { label: "Explore", href: "/admin/ask" },
+  { label: "AI Surveillance", href: "/admin/surveillance" },
 ];
 
 export const conditionsByDistrict = [

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Avatar } from "./Avatar";
 import { Mark } from "./Mark";
 import { useStore } from "@/lib/store";
@@ -61,6 +61,19 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const session = useSession();
+  const navRef = useRef<HTMLElement>(null);
+
+  // On phones the tab row scrolls sideways; bring the current tab into view so
+  // a page reached from a later tab does not open with its own tab hidden.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || nav.scrollWidth <= nav.clientWidth) return;
+    const current = nav.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!current) return;
+    const offset =
+      current.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+    nav.scrollLeft = offset - (nav.clientWidth - current.offsetWidth) / 2;
+  }, [pathname]);
 
   /**
    * Send anyone without the right session back to the login page.
@@ -107,9 +120,10 @@ export function AppShell({
   return (
     <div className="flex min-h-screen flex-col">
       <header className="mesh-bar">
-        {/* Below md the tabs drop to their own row and scroll sideways, so the
-            header never pushes the page wider than a phone screen. */}
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 px-4 pt-3 md:h-16 md:flex-nowrap md:px-8 md:pt-0">
+        {/* Below xl the tabs drop to their own row and scroll sideways, so the
+            header never pushes the page wider than the screen. On one row the
+            tabs still shrink and scroll rather than overflow. */}
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 px-4 pt-3 md:px-8 xl:h-16 xl:flex-nowrap xl:pt-0">
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
             <Mark className="h-[22px] w-[22px] text-sage-light" />
             <span className="font-serif text-[17px] font-semibold tracking-tight text-cream">
@@ -117,13 +131,14 @@ export function AppShell({
             </span>
           </Link>
 
-          <nav className="order-last -mx-4 flex w-[calc(100%+2rem)] no-scrollbar items-center gap-1 overflow-x-auto px-4 py-2 md:order-none md:mx-0 md:ml-6 md:w-auto md:overflow-visible md:px-0 md:py-0">
+          <nav ref={navRef} className="no-scrollbar order-last -mx-4 flex w-[calc(100%+2rem)] items-center gap-1 overflow-x-auto px-4 py-2 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 xl:order-none xl:mx-0 xl:ml-6 xl:w-auto xl:min-w-0 xl:flex-1 xl:px-0 xl:py-0">
               {tabs.map((tab) => {
                 const active = pathname === tab.href;
                 return (
                   <Link
                     key={tab.href}
                     href={tab.href}
+                    aria-current={active ? "page" : undefined}
                     className={`transition-calm shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13.5px] font-medium ${
                       active
                         ? "bg-white/10 text-cream shadow-inset"
@@ -136,7 +151,7 @@ export function AppShell({
               })}
           </nav>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-3">
             <SyncStatus />
             <span className="hidden text-[11px] font-medium uppercase tracking-label text-sage-light sm:block">
               {role === "clinician" ? "Clinician access" : "Aggregate access"}
