@@ -67,6 +67,14 @@ body {
 }
 
 @layer utilities {
+  /* Scrolls, but without a visible bar — for the header tab row on phones. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* --- Dark surfaces -------------------------------------------------
      Mesh: three overlapping glows (forest, teal, olive) over a deep base,
      so the colour travels across the surface instead of sitting flat. */

@@ -117,7 +117,7 @@ export function AppShell({
             </span>
           </Link>
 
-          <nav className="order-last -mx-4 flex w-[calc(100%+2rem)] items-center gap-1 overflow-x-auto px-4 py-2 md:order-none md:mx-0 md:ml-6 md:w-auto md:overflow-visible md:px-0 md:py-0">
+          <nav className="order-last -mx-4 flex w-[calc(100%+2rem)] no-scrollbar items-center gap-1 overflow-x-auto px-4 py-2 md:order-none md:mx-0 md:ml-6 md:w-auto md:overflow-visible md:px-0 md:py-0">
               {tabs.map((tab) => {
                 const active = pathname === tab.href;
                 return (
