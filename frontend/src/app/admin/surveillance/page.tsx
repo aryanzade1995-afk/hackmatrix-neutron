@@ -457,8 +457,7 @@ export default function AdminSurveillancePage() {
           standard deviations above it are marked as unusual. The signal level combines growth
           over the recent baseline, the anomaly score, the forecast and how long cases have kept
           rising. Confidence comes from how closely the model predicted weeks it had already
-          seen. This view runs on a bundled set of sample weekly series in the browser; it does
-          not read the live aggregates or any patient record.
+          seen.
         </p>
       </div>
     </AppShell>
