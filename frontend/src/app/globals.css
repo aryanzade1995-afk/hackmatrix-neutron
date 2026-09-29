@@ -269,3 +269,10 @@ body {
     border-color: #d8e2d2;
   }
 }
+
+/* Field the record-quality card sent the clinician to, briefly outlined. */
+.rq-highlight {
+  box-shadow: 0 0 0 3px var(--color-warning) !important;
+  border-radius: 12px;
+  transition: box-shadow 200ms ease;
+}

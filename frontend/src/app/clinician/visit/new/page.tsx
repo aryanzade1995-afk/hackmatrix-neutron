@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/Badge";
@@ -12,6 +12,12 @@ import { PatientContextBar } from "@/components/PatientContextBar";
 import { PatientLookupState } from "@/components/PatientLookupState";
 import { usePatientLookup } from "@/lib/patientLookup";
 import { VoiceEntry } from "@/components/VoiceEntry";
+import { RecordQualityCard } from "@/components/RecordQualityCard";
+import {
+  analyzeRecordQuality,
+  summarise,
+  type QualityField,
+} from "@/lib/recordQualityAI";
 import { useStore } from "@/lib/store";
 import {
   ageFromDob,
@@ -99,6 +105,22 @@ export default function NewVisitPage() {
  * mounts only once the patient is resolved, so nothing in it (the facility,
  * say) is initialised from the wrong person.
  */
+/** Where each field the quality check can flag lives in this form. */
+const FIELD_TARGET: Partial<Record<QualityField, { step: number; id: string; detail?: boolean }>> = {
+  complaint: { step: 1, id: "vf-complaint" },
+  diagnosis: { step: 2, id: "vf-diagnosis" },
+  prescriptions: { step: 3, id: "vf-prescriptions" },
+  systolic: { step: 4, id: "vf-systolic", detail: true },
+  diastolic: { step: 4, id: "vf-diastolic", detail: true },
+  weightKg: { step: 4, id: "vf-weightKg", detail: true },
+  heartRate: { step: 4, id: "vf-heartRate", detail: true },
+  hba1c: { step: 4, id: "vf-hba1c", detail: true },
+  notes: { step: 4, id: "vf-notes", detail: true },
+};
+
+/** How long the "Analyzing record…" state shows after an edit. */
+const QUALITY_DEBOUNCE_MS = 550;
+
 function NewVisitFlow() {
   const searchParams = useSearchParams();
   const lookup = usePatientLookup(searchParams.get("patient"));
@@ -115,7 +137,7 @@ function NewVisitFlow() {
 
 function VisitForm({ patient }: { patient: Patient }) {
   const router = useRouter();
-  const { visits, addVisit } = useStore();
+  const { visits, addVisit, patients } = useStore();
 
   const [step, setStep] = useState(1);
   const [complaintId, setComplaintId] = useState<string | null>(null);
@@ -204,6 +226,97 @@ function VisitForm({ patient }: { patient: Patient }) {
     return patient.allergies.find((a) => a.drugClass === p.drugClass) ?? null;
   }
   const conflicts = prescriptions.filter((p) => conflictFor(p));
+
+  // ---------------------------------------------------------- record quality
+  // Recomputed from the form on every render (it is cheap and deterministic),
+  // but shown only after a short pause, so the card reads as re-checking the
+  // record after each edit rather than flickering on every keystroke.
+  const patientHistory = useMemo(
+    () => visits.filter((v) => v.patientId === patient.id),
+    [visits, patient.id],
+  );
+  const liveQuality = useMemo(
+    () =>
+      analyzeRecordQuality({
+        vitals,
+        diagnosis,
+        complaintLabel: complaint?.label ?? null,
+        prescriptions,
+        notes,
+        patient,
+        history: patientHistory,
+        allergies: patient.allergies,
+        otherPatients: patients,
+      }),
+    [vitals, diagnosis, complaint, prescriptions, notes, patient, patientHistory, patients],
+  );
+  const liveQualityRef = useRef(liveQuality);
+  liveQualityRef.current = liveQuality;
+  const [shownQuality, setShownQuality] = useState(liveQuality);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const qualityInputKey = JSON.stringify([
+    vitals,
+    diagnosis,
+    complaintId,
+    prescriptions.map((p) => `${p.drug}|${p.strength}`),
+  ]);
+  const firstQualityRun = useRef(true);
+
+  useEffect(() => {
+    if (firstQualityRun.current) {
+      firstQualityRun.current = false;
+      setShownQuality(liveQualityRef.current);
+      return;
+    }
+    setAnalyzing(true);
+    const t = window.setTimeout(() => {
+      setShownQuality(liveQualityRef.current);
+      setAnalyzing(false);
+    }, QUALITY_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [qualityInputKey]);
+
+  const quality = summarise(
+    shownQuality.issues.filter((i) => !dismissed.includes(i.id)),
+    { prescriptions },
+  );
+  const dismissedCount = shownQuality.issues.filter((i) => dismissed.includes(i.id)).length;
+
+  /** Jump to the flagged field — opening its step and the vitals panel if needed. */
+  function reviewField(field: QualityField) {
+    const target = FIELD_TARGET[field];
+    if (!target) return;
+    if (target.detail) setDetailOpen(true);
+    setStep(target.step);
+    setFocusTarget(target.id);
+  }
+
+  useEffect(() => {
+    if (!focusTarget) return;
+    const el = document.getElementById(focusTarget);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        el.focus({ preventScroll: true });
+      }
+      el.classList.add("rq-highlight");
+      window.setTimeout(() => el.classList.remove("rq-highlight"), 1800);
+    }
+    setFocusTarget(null);
+  }, [focusTarget, step, detailOpen]);
+
+  const qualityCard = (
+    <RecordQualityCard
+      result={quality}
+      analyzing={analyzing}
+      dismissedCount={dismissedCount}
+      onReview={reviewField}
+      onDismiss={(id) => setDismissed((prev) => [...prev, id])}
+      canReview={(field) => Boolean(FIELD_TARGET[field])}
+    />
+  );
 
   const symptomTags = Object.values(answers).flat();
 
@@ -406,7 +519,7 @@ function VisitForm({ patient }: { patient: Patient }) {
             </div>
 
             {/* Larger tap targets in a grid, commonest first */}
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div id="vf-complaint" className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {shownComplaints.map((c) => {
                 const Icon = COMPLAINT_ICONS[c.id] ?? Stethoscope;
                 const selected = complaintId === c.id;
@@ -509,6 +622,7 @@ function VisitForm({ patient }: { patient: Patient }) {
                   setShowSuggestions(true);
                 }}
                 onFocus={() => setShowSuggestions(true)}
+                id="vf-diagnosis"
                 placeholder="Type a diagnosis"
                 autoFocus
                 className={inputClass}
@@ -747,13 +861,16 @@ function VisitForm({ patient }: { patient: Patient }) {
             </Card>
           )}
 
+          <div id="vf-prescriptions" className="scroll-mt-24" />
           <PrescriptionList
             prescriptions={prescriptions}
             conflictFor={conflictFor}
-            onRemove={(drug) =>
-              setPrescriptions((prev) => prev.filter((p) => p.drug !== drug))
+            onRemove={(index) =>
+              setPrescriptions((prev) => prev.filter((_, i) => i !== index))
             }
           />
+
+          {prescriptions.length > 0 && qualityCard}
         </div>
       )}
 
@@ -785,9 +902,9 @@ function VisitForm({ patient }: { patient: Patient }) {
                   <span className="text-ink-faint">None prescribed</span>
                 ) : (
                   <span className="flex flex-wrap gap-2">
-                    {prescriptions.map((p) => (
+                    {prescriptions.map((p, i) => (
                       <RxBadge
-                        key={p.drug}
+                        key={`${p.drug}-${i}`}
                         prescription={p}
                         conflict={Boolean(conflictFor(p))}
                       />
@@ -847,6 +964,7 @@ function VisitForm({ patient }: { patient: Patient }) {
                       <label key={key} className="block">
                         <span className="text-[11.5px] text-ink-faint">{label}</span>
                         <input
+                          id={`vf-${key}`}
                           inputMode="decimal"
                           value={vitals[key]}
                           onChange={(e) =>
@@ -860,6 +978,7 @@ function VisitForm({ patient }: { patient: Patient }) {
                   <label className="block">
                     <span className="text-[11.5px] text-ink-faint">Notes</span>
                     <textarea
+                      id="vf-notes"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       rows={3}
@@ -870,6 +989,8 @@ function VisitForm({ patient }: { patient: Patient }) {
               )}
             </div>
           </Card>
+
+          {qualityCard}
 
           {conflicts.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-danger bg-danger-tint px-7 py-5">
@@ -966,7 +1087,8 @@ function PrescriptionList({
 }: {
   prescriptions: Prescription[];
   conflictFor: (p: Prescription) => { label: string } | null;
-  onRemove: (drug: string) => void;
+  /** Position in the list: the same medicine can be listed twice. */
+  onRemove: (index: number) => void;
 }) {
   if (prescriptions.length === 0) return null;
 
@@ -977,10 +1099,10 @@ function PrescriptionList({
         subtitle="Checked against recorded allergies as you add."
       />
       <ul className="divide-y divide-border border-t border-border">
-        {prescriptions.map((p) => {
+        {prescriptions.map((p, i) => {
           const clash = conflictFor(p);
           return (
-            <li key={p.drug} className="flex items-center gap-4 px-7 py-3.5">
+            <li key={`${p.drug}-${i}`} className="flex items-center gap-4 px-7 py-3.5">
               <div className="min-w-0 flex-1">
                 <p className="nums text-[14px] font-medium text-ink">
                   {formatRxLine(p)}
@@ -994,7 +1116,7 @@ function PrescriptionList({
               </div>
               <button
                 type="button"
-                onClick={() => onRemove(p.drug)}
+                onClick={() => onRemove(i)}
                 aria-label={`Remove ${p.drug}`}
                 className="transition-calm rounded-lg p-1.5 text-ink-faint hover:bg-canvas hover:text-ink"
               >
